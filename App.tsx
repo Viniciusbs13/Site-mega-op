@@ -12,7 +12,7 @@ import SalesView from './components/SalesView';
 import WikiView from './components/WikiView'; 
 import { dbService } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, LogIn, ShieldCheck, UserCircle, LogOut, Lock, RefreshCw, AlertCircle, Copy, Check, Database, ShieldAlert, ShieldCheck as ShieldIcon, KeyRound, UserPlus, Mail, Fingerprint, ChevronRight } from 'lucide-react';
+import { Hash, LogOut, Lock, Database, ShieldCheck as ShieldIcon, Mail, Fingerprint, ChevronRight } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const monthKey = `${currentMonthName} ${currentYear}`;
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isDataReady, setIsDataReady] = useState(false); // Flag para evitar saves precoces
   const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [email, setEmail] = useState('');
@@ -37,7 +38,7 @@ const App: React.FC = () => {
 
   const [availableRoles, setAvailableRoles] = useState<string[]>(Object.values(DefaultUserRole));
   const [team, setTeam] = useState<User[]>([
-    { id: 'ceo-master', name: 'Diretoria Ômega', role: DefaultUserRole.CEO, isActive: true, isApproved: true, email: 'viniciusbarbosasampaio71@gmail.com' }
+    { id: 'ceo-master', name: 'Vinícius (CEO)', role: DefaultUserRole.CEO, isActive: true, isApproved: true, email: 'viniciusbarbosasampaio71@gmail.com' }
   ]);
   
   const [db, setDb] = useState<MonthlyData>({
@@ -51,54 +52,61 @@ const App: React.FC = () => {
     }
   });
 
-  const sqlSetup = `-- 1. TABELA DE ESTADO
+  const sqlSetup = `-- CONFIGURAÇÃO DO BANCO ÔMEGA
+-- 1. TABELA DE ESTADO ÚNICO
 CREATE TABLE IF NOT EXISTS project_state (
   id TEXT PRIMARY KEY,
   data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. HABILITAR SEGURANÇA
+-- 2. ATIVAR RLS
 ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 
--- 3. POLÍTICAS ACESSO ANÔNIMO (ESSENCIAL PARA O BACKDOOR)
+-- 3. POLÍTICA DE ACESSO TOTAL (GARANTE CONEXÃO 100%)
+-- Esta política permite que usuários autenticados e o backdoor anônimo operem os dados
 DROP POLICY IF EXISTS "Acesso Total" ON project_state;
-CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH CHECK (true);`;
+CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
 
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
       
-      // 1. Carregar dados do banco de dados (Supabase ou LocalStorage)
+      // Tentar carregar dados do Cloud
       const result = await dbService.loadState();
-      let currentTeam = team;
-
+      
       if (result.error === 'TABLE_NOT_FOUND') {
         setShowSetupModal(true);
       } else if (result.state) {
         setTeam(result.state.team);
         setAvailableRoles(result.state.availableRoles);
         setDb(result.state.db);
-        currentTeam = result.state.team;
+        setIsDataReady(true);
+      } else {
+        // Se não houver dados no banco mas a tabela existir, marca como pronto para o primeiro save
+        setIsDataReady(true);
       }
 
-      // 2. Verificar Backdoor de Sessão (Omega)
+      // Checar se já existe sessão de backdoor (Omega)
       const isOmegaBackdoor = localStorage.getItem('omega_backdoor_session') === 'true';
       if (isOmegaBackdoor) {
-        const ceoUser = currentTeam.find(u => u.role === DefaultUserRole.CEO) || currentTeam[0];
-        setCurrentUser({ ...ceoUser, isApproved: true, isActive: true, role: DefaultUserRole.CEO });
+        setCurrentUser({
+          id: 'backdoor-ceo',
+          name: 'Diretoria (Mestre)',
+          role: DefaultUserRole.CEO,
+          isActive: true,
+          isApproved: true
+        });
         setIsAuthenticated(true);
         setIsLoading(false);
         return;
       }
 
-      // 3. Verificar Sessão Oficial Supabase
+      // Checar Sessão Supabase
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (session?.user) {
-        // Regra de Super-CEO para Vinícius
         if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
-          const viniciusUser: User = {
+          setCurrentUser({
             id: 'vinicius-ceo',
             authId: session.user.id,
             email: session.user.email,
@@ -106,12 +114,11 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
             role: DefaultUserRole.CEO,
             isActive: true,
             isApproved: true
-          };
-          setCurrentUser(viniciusUser);
+          });
           setIsAuthenticated(true);
         } else {
-          // Usuário Comum
-          const userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === session.user.email);
+          // Buscar no time carregado
+          const userMatch = result.state?.team.find(u => u.authId === session.user.id || u.email === session.user.email);
           if (userMatch) {
             setCurrentUser(userMatch);
             setIsAuthenticated(true);
@@ -126,24 +133,15 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
         if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
-           setCurrentUser({
-              id: 'vinicius-ceo',
-              authId: session.user.id,
-              email: session.user.email,
-              name: 'Vinícius Barbosa',
-              role: DefaultUserRole.CEO,
-              isActive: true,
-              isApproved: true
-           });
+           setCurrentUser({ id: 'vinicius-ceo', authId: session.user.id, email: session.user.email, name: 'Vinícius Barbosa', role: DefaultUserRole.CEO, isActive: true, isApproved: true });
            setIsAuthenticated(true);
         } else {
+          // Recarrega estado para garantir que pegamos o usuário recém aprovado
           const res = await dbService.loadState();
-          if (res.state) {
-            const user = res.state.team.find(u => u.authId === session.user.id || u.email === session.user.email);
-            if (user) {
-              setCurrentUser(user);
-              setIsAuthenticated(true);
-            }
+          const user = res.state?.team.find(u => u.authId === session.user.id || u.email === session.user.email);
+          if (user) {
+            setCurrentUser(user);
+            setIsAuthenticated(true);
           }
         }
       } else if (event === 'SIGNED_OUT') {
@@ -156,34 +154,28 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Sincronização Global Ativa
+  // SINCRONIZAÇÃO NUVEM (AUTO-SAVE INTELIGENTE)
   useEffect(() => {
-    if (!isLoading && !showSetupModal && isAuthenticated) {
+    // SÓ SALVA SE: não estiver carregando, tabela existir, usuário logado E os dados iniciais foram carregados
+    if (!isLoading && !showSetupModal && isAuthenticated && isDataReady) {
       const sync = async () => {
         setDbStatus('syncing');
         const result = await dbService.saveState({ team, availableRoles, db });
         if (result.success) setDbStatus('connected');
         else setDbStatus('error');
       };
-      const timeout = setTimeout(sync, 1500);
+      const timeout = setTimeout(sync, 1200); // Debounce para não sobrecarregar
       return () => clearTimeout(timeout);
     }
-  }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated]);
+  }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated, isDataReady]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // BACKDOOR SECRETO DO CEO (OMEGA)
+    // BACKDOOR CEO (ÔMEGA)
     if (email === 'Omega' && password === 'eu que mando') {
        localStorage.setItem('omega_backdoor_session', 'true');
-       const ceoUser = team.find(u => u.role === DefaultUserRole.CEO) || team[0];
-       setCurrentUser({
-         ...ceoUser,
-         name: 'Diretoria Mestre',
-         isApproved: true,
-         isActive: true,
-         role: DefaultUserRole.CEO
-       });
+       setCurrentUser({ id: 'backdoor-ceo', name: 'Diretoria (Mestre)', role: DefaultUserRole.CEO, isActive: true, isApproved: true });
        setIsAuthenticated(true);
        return;
     }
@@ -193,7 +185,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } catch (err: any) {
-      alert('Credenciais Supabase incorretas ou inexistentes.');
+      alert('Falha na autenticação Cloud.');
     } finally {
       setIsLoading(false);
     }
@@ -201,7 +193,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) return alert('A senha deve ter pelo menos 6 caracteres.');
+    if (password.length < 6) return alert('Sua senha deve ter no mínimo 6 dígitos.');
     
     setIsLoading(true);
     try {
@@ -222,22 +214,19 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
           name: fullName,
           role: isVinicius ? DefaultUserRole.CEO : requestedRole,
           isActive: true,
-          isApproved: isVinicius ? true : false
+          isApproved: isVinicius
         };
 
         const updatedTeam = [...team, newUser];
         setTeam(updatedTeam);
+        // Forçar save imediato no registro para o CEO ver
         await dbService.saveState({ team: updatedTeam, availableRoles, db });
         
-        if (isVinicius) {
-          alert('Conta de Administrador Mestre ativada!');
-        } else {
-          alert('Solicitação de entrada registrada. Aguarde aprovação do CEO.');
-        }
+        alert(isVinicius ? 'Acesso Master Liberado!' : 'Solicitação enviada! Aguarde a liberação do Vinícius.');
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
-      alert('Erro no registro: ' + err.message);
+      alert('Erro no cadastro: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -263,7 +252,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Estabelecendo Conexão Segura...</p>
+        <p className="text-[10px] font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
       </div>
     );
   }
@@ -276,27 +265,27 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         <div className="w-full max-w-md relative z-10 space-y-8">
           <div className="text-center space-y-4">
             <div className="w-20 h-20 bg-[#14b8a6] rounded-[24px] flex items-center justify-center mx-auto shadow-[0_20px_40px_rgba(20,184,166,0.3)] transform rotate-3">
-              <span className="text-black font-black text-4xl">Ω</span>
+              <span className="text-black font-black text-4xl italic">Ω</span>
             </div>
             <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Omega System</h1>
-            <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.3em]">Ambiente de Alta Performance</p>
+            <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.3em]">Gestão Operacional de Elite</p>
           </div>
 
           <form onSubmit={authMode === 'LOGIN' ? handleLogin : handleRegister} className="bg-[#111]/80 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl space-y-6">
             <div className="flex bg-black/40 p-1 rounded-2xl mb-4">
-              <button type="button" onClick={() => setAuthMode('LOGIN')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'LOGIN' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Login</button>
-              <button type="button" onClick={() => setAuthMode('REGISTER')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'REGISTER' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Cadastro</button>
+              <button type="button" onClick={() => setAuthMode('LOGIN')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'LOGIN' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Acessar</button>
+              <button type="button" onClick={() => setAuthMode('REGISTER')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'REGISTER' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Novo</button>
             </div>
 
             <div className="space-y-4">
               {authMode === 'REGISTER' && (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Nome Completo</label>
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Nome</label>
                     <input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Função Solicitada</label>
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Cargo</label>
                     <select value={requestedRole} onChange={e => setRequestedRole(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none">
                       {availableRoles.filter(r => r !== 'CEO').map(r => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
                     </select>
@@ -308,20 +297,20 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
                 <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Identificação</label>
                 <div className="relative">
                   <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                  <input required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mail ou ID" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
+                  <input required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mail ou ID Master" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Chave de Segurança</label>
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Chave Segura</label>
                 <div className="relative">
                   <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                   <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
                 </div>
               </div>
 
-              <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)] flex items-center justify-center gap-3 mt-4">
-                {authMode === 'LOGIN' ? 'ACESSAR AGORA' : 'SOLICITAR ADMISSÃO'}
+              <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)] flex items-center justify-center gap-3 mt-4 italic">
+                {authMode === 'LOGIN' ? 'AUTENTICAR' : 'SOLICITAR ACESSO'}
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -337,13 +326,13 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
          <div className="max-w-md space-y-8 animate-in zoom-in duration-500">
             <Fingerprint className="w-32 h-32 text-teal-500 mx-auto animate-pulse" />
             <div className="space-y-4">
-               <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Aguardando Aprovação</h2>
-               <p className="text-gray-500 text-sm leading-relaxed">
-                 Olá, <span className="text-white font-bold">{currentUser.name}</span>. Sua identidade foi verificada. 
-                 Agora você precisa que o CEO aprove seu acesso ao squad de <span className="text-teal-500 font-bold">{currentUser.role.replace('_', ' ')}</span>.
+               <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Acesso em Fila</h2>
+               <p className="text-gray-500 text-sm leading-relaxed px-6">
+                 Olá, <span className="text-white font-bold">{currentUser.name}</span>. Sua identidade Cloud foi criada. 
+                 Agora o <span className="text-white">Vinícius</span> precisa aprovar seu acesso ao setor de <span className="text-teal-500 font-bold">{currentUser.role.replace('_', ' ')}</span>.
                </p>
             </div>
-            <button onClick={handleLogout} className="text-xs font-black text-red-500 uppercase tracking-[0.2em] flex items-center gap-3 mx-auto hover:text-red-400">
+            <button onClick={handleLogout} className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em] flex items-center gap-3 mx-auto hover:text-red-400 italic">
                <LogOut className="w-4 h-4" /> CANCELAR E SAIR
             </button>
          </div>
@@ -383,6 +372,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         <ManagerWorkspace 
           managerId={currentUser.id} clients={currentData.clients} tasks={currentData.tasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })}
           onToggleTask={id => updateCurrentMonthData({ tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) })} 
+          // Fixed: Changed 'cid' to 'id' as 'cid' was not defined
           onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} 
           onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} 
           onUpdateFolder={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) })} 
@@ -399,19 +389,19 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       case 'notes': return <WikiView wiki={currentData.wiki || []} currentUser={currentUser} onUpdateWiki={(newItems) => updateCurrentMonthData({ wiki: newItems })} />;
       case 'chat': return (
         <div className="flex flex-col h-full max-w-[1000px] mx-auto">
-           <header className="mb-8 flex justify-between items-center px-4"><h2 className="text-3xl font-black text-white italic uppercase flex items-center gap-3"><Hash className="w-8 h-8 text-teal-500" /> Comunicação Interna</h2></header>
-           <div className="flex-1 bg-[#111] border border-white/5 rounded-[40px] flex flex-col overflow-hidden">
+           <header className="mb-8 flex justify-between items-center px-4"><h2 className="text-3xl font-black text-white italic uppercase flex items-center gap-3"><Hash className="w-8 h-8 text-teal-500" /> Comunicação Direta</h2></header>
+           <div className="flex-1 bg-[#111] border border-white/5 rounded-[40px] flex flex-col overflow-hidden shadow-2xl">
               <div className="flex-1 p-8 overflow-y-auto space-y-4">
                 {currentData.chatMessages?.map(msg => (
                   <div key={msg.id} className={`flex flex-col ${msg.senderId === currentUser.id ? 'items-end' : 'items-start'}`}>
                     <span className="text-[9px] font-black text-gray-600 uppercase mb-1">{msg.senderName}</span>
-                    <div className={`px-5 py-3 rounded-2xl text-sm ${msg.senderId === currentUser.id ? 'bg-[#14b8a6] text-black font-bold' : 'bg-white/5 text-white'}`}>{msg.text}</div>
+                    <div className={`px-5 py-3 rounded-2xl text-sm ${msg.senderId === currentUser.id ? 'bg-[#14b8a6] text-black font-bold shadow-lg shadow-teal-500/10' : 'bg-white/5 text-white'}`}>{msg.text}</div>
                   </div>
                 ))}
               </div>
               <div className="p-6 bg-black/40 flex gap-4">
-                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && (()=>{if(!chatInput.trim())return; updateCurrentMonthData({ chatMessages: [...(currentData.chatMessages || []), { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: '' }] }); setChatInput('');})()} placeholder="Escreva para o time..." className="flex-1 bg-black rounded-2xl px-6 py-4 text-white outline-none border border-white/5" />
-                <button onClick={() => {if(!chatInput.trim())return; updateCurrentMonthData({ chatMessages: [...(currentData.chatMessages || []), { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: '' }] }); setChatInput('');}} className="bg-teal-500 px-8 rounded-2xl text-black font-black">ENVIAR</button>
+                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && (()=>{if(!chatInput.trim())return; updateCurrentMonthData({ chatMessages: [...(currentData.chatMessages || []), { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: '' }] }); setChatInput('');})()} placeholder="Comando para o time..." className="flex-1 bg-black rounded-2xl px-6 py-4 text-white outline-none border border-white/5 focus:border-teal-500/30 transition-all" />
+                <button onClick={() => {if(!chatInput.trim())return; updateCurrentMonthData({ chatMessages: [...(currentData.chatMessages || []), { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: '' }] }); setChatInput('');}} className="bg-teal-500 px-8 rounded-2xl text-black font-black italic hover:scale-105 transition-all">ENVIAR</button>
               </div>
            </div>
         </div>
@@ -440,10 +430,13 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
           <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8 text-center">
              <ShieldIcon className="w-16 h-16 text-teal-500 mx-auto" />
-             <h2 className="text-2xl font-black text-white uppercase italic">Setup Cloud Necessário</h2>
-             <p className="text-gray-500 text-sm leading-relaxed">Sua infraestrutura de dados ainda não foi detectada no Supabase.</p>
-             <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px]">{sqlSetup}</pre>
-             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">Tentar Reconectar</button>
+             <h2 className="text-2xl font-black text-white uppercase italic">Configuração de Nuvem Necessária</h2>
+             <p className="text-gray-500 text-sm leading-relaxed">Sua estrutura de dados Ômega não foi encontrada no Cloud. Copie e execute o script abaixo no SQL Editor do Supabase para conectar:</p>
+             <div className="relative group">
+                <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px] custom-scrollbar">{sqlSetup}</pre>
+                <button onClick={() => {navigator.clipboard.writeText(sqlSetup); alert('SQL Copiado!')}} className="absolute top-4 right-4 bg-white/5 p-2 rounded-lg text-white hover:bg-white/10 transition-all"><Database className="w-4 h-4"/></button>
+             </div>
+             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase italic hover:scale-105 transition-all">Sincronizar Protocolo</button>
           </div>
         </div>
       )}

@@ -14,8 +14,10 @@ export interface DbResult {
 
 export const dbService = {
   saveState: async (state: AppState): Promise<{ success: boolean; error?: any }> => {
+    // 1. Persistência Local Imediata (Backup)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
+    // 2. Sincronização Cloud Atômica
     if (supabase) {
       try {
         const { error } = await supabase
@@ -27,11 +29,12 @@ export const dbService = {
           }, { onConflict: 'id' });
         
         if (error) {
-          console.warn('Erro Supabase:', error.message);
+          console.error('Database Sync Warning:', error.message);
           return { success: false, error };
         }
         return { success: true };
       } catch (e) {
+        console.error('Critical Cloud Failure:', e);
         return { success: false, error: e };
       }
     }
@@ -39,6 +42,7 @@ export const dbService = {
   },
 
   loadState: async (): Promise<DbResult> => {
+    // Carregar do backup local como fallback inicial
     const localData = localStorage.getItem(STORAGE_KEY);
     const fallbackState = localData ? JSON.parse(localData) : null;
 
@@ -48,13 +52,15 @@ export const dbService = {
           .from(SUPABASE_TABLE)
           .select('data')
           .eq('id', CONFIG_ID)
-          .single();
+          .maybeSingle();
 
+        // Tratamento de Erro de Tabela Inexistente (42P01)
         if (error) {
-          // Código 42P01 é "tabela não existe" no Postgres/Supabase
-          if (error.code === '42P01' || error.message.includes('not find the table')) {
+          if (error.code === '42P01') {
             return { state: fallbackState, error: 'TABLE_NOT_FOUND', code: error.code };
           }
+          // Se for erro de permissão (RLS) ou outro, ainda retornamos o fallback local
+          console.error('Supabase Load Error:', error.message);
           return { state: fallbackState, error: error.message };
         }
 
@@ -62,6 +68,7 @@ export const dbService = {
           return { state: data.data as AppState };
         }
       } catch (e: any) {
+        console.error('Unexpected Load Failure:', e);
         return { state: fallbackState, error: e.message };
       }
     }
