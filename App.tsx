@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserRole, DefaultUserRole, Client, Task, User, MonthlyData, ClientStatus, SalesGoal, ChatMessage, ClientHealth, DriveItem, AppState } from './types';
 import { INITIAL_CLIENTS, NAVIGATION_ITEMS, MANAGERS, MONTHS } from './constants';
 import Sidebar from './components/Sidebar';
@@ -11,9 +11,31 @@ import TeamView from './components/TeamView';
 import SalesView from './components/SalesView';
 import WikiView from './components/WikiView'; 
 import SettingsView from './components/SettingsView';
-import { dbService } from './services/database';
+import { dbService, DbResult } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, LogOut, Lock, Database, ShieldCheck as ShieldIcon, Mail, Fingerprint, ChevronRight, AlertCircle } from 'lucide-react';
+import { Hash, LogOut, Lock, Database, ShieldCheck as ShieldIcon, Mail, Fingerprint, ChevronRight, AlertCircle, RefreshCw, ServerCrash } from 'lucide-react';
+
+const sqlSetup = `
+-- COLE ISSO NO SQL EDITOR DO SUPABASE E CLIQUE EM RUN:
+
+-- 1. Cria a tabela de estado
+CREATE TABLE IF NOT EXISTS project_state (
+  id TEXT PRIMARY KEY,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Ativa o Row Level Security (RLS)
+ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
+
+-- 3. Cria as políticas de acesso total para usuários logados
+DROP POLICY IF EXISTS "Acesso Total" ON project_state;
+CREATE POLICY "Acesso Total" ON project_state
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- 4. Habilita o Realtime para esta tabela
+ALTER PUBLICATION supabase_realtime ADD TABLE project_state;
+`.trim();
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -21,10 +43,11 @@ const App: React.FC = () => {
   const monthKey = `${currentMonthName} ${currentYear}`;
 
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingStep, setLoadingStep] = useState('Iniciando Protocolos...');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isDataReady, setIsDataReady] = useState(false);
-  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -40,9 +63,7 @@ const App: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
 
   const [availableRoles, setAvailableRoles] = useState<string[]>(Object.values(DefaultUserRole));
-  const [team, setTeam] = useState<User[]>([
-    { id: 'ceo-master', name: 'Vinícius (CEO)', role: DefaultUserRole.CEO, isActive: true, isApproved: true, email: 'viniciusbarbosasampaio71@gmail.com' }
-  ]);
+  const [team, setTeam] = useState<User[]>([]);
   
   const [db, setDb] = useState<MonthlyData>({
     [monthKey]: {
@@ -55,105 +76,111 @@ const App: React.FC = () => {
     }
   });
 
-  const sqlSetup = `-- CONFIGURAÇÃO DO BANCO ÔMEGA\nCREATE TABLE IF NOT EXISTS project_state (\n  id TEXT PRIMARY KEY,\n  data JSONB NOT NULL,\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\nALTER TABLE project_state ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "Acesso Total" ON project_state;\nCREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
+  const lastIncomingData = useRef<string>("");
 
-  // Função crítica para garantir que o usuário entre e seja visto pelo CEO
-  const syncUserAndEnter = async (session: any, currentTeam: User[]) => {
+  const syncUserAndEnter = async (session: any, currentTeam: User[], currentRoles: string[], currentDb: MonthlyData) => {
     if (!session?.user) return;
     
     const userEmail = session.user.email;
     const isVinicius = userEmail === 'viniciusbarbosasampaio71@gmail.com';
     
-    if (isVinicius) {
-      setCurrentUser({
+    let userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === userEmail);
+
+    if (isVinicius && !userMatch) {
+      userMatch = {
         id: 'vinicius-ceo',
         authId: session.user.id,
         email: userEmail,
-        name: 'Vinícius Barbosa',
+        name: 'Vinícius (CEO)',
         role: DefaultUserRole.CEO,
         isActive: true,
         isApproved: true
-      });
-      setIsAuthenticated(true);
-      setIsLoading(false);
-      return;
-    }
-
-    // Busca se o usuário já está no banco de dados da equipe
-    let userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === userEmail);
-
-    if (!userMatch) {
-      setLoadingStep('Registrando Identidade na Nuvem...');
-      // AUTO-ONBOARDING: Cria o usuário na lista da equipe se ele logou via Supabase mas não está no DB
+      };
+      const updatedTeam = [userMatch, ...currentTeam.filter(u => u.id !== 'vinicius-ceo')];
+      setTeam(updatedTeam);
+      await dbService.saveState({ team: updatedTeam, availableRoles: currentRoles, db: currentDb });
+    } else if (!userMatch) {
       const newUser: User = {
         id: Math.random().toString(36).substr(2, 9),
         authId: session.user.id,
         email: userEmail,
-        name: session.user.user_metadata?.full_name || userEmail?.split('@')[0] || 'Novo Colaborador',
+        name: session.user.user_metadata?.full_name || fullName || userEmail?.split('@')[0] || 'Novo Membro',
         role: DefaultUserRole.MANAGER,
         isActive: true,
         isApproved: true
       };
-      
       const updatedTeam = [...currentTeam, newUser];
       setTeam(updatedTeam);
       userMatch = newUser;
-
-      // Salva imediatamente para que o CEO veja o novo membro na lista
-      await dbService.saveState({ team: updatedTeam, availableRoles, db });
+      // Salva na nuvem na hora do login para o CEO já ver
+      await dbService.saveState({ team: updatedTeam, availableRoles: currentRoles, db: currentDb });
     }
 
     if (userMatch) {
-      setCurrentUser({ ...userMatch, isApproved: true });
+      setCurrentUser(userMatch);
       setIsAuthenticated(true);
     }
-    
     setIsLoading(false);
   };
 
   useEffect(() => {
     const init = async () => {
       try {
-        setLoadingStep('Conectando ao Supabase...');
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        setLoadingStep('Carregando Banco Ômega...');
         const result = await dbService.loadState();
-        let loadedTeam = team;
-
-        if (result.error === 'TABLE_NOT_FOUND') {
+        
+        if (result.error === 'TABLE_NOT_FOUND' || result.error === 'RLS_ERROR') {
+          setLoadError(result.details || 'Erro de Banco de Dados');
           setShowSetupModal(true);
-          setIsLoading(false);
-          return;
+          // Não paramos o carregamento aqui para mostrar o modal
         }
 
         if (result.state) {
           setTeam(result.state.team);
           setAvailableRoles(result.state.availableRoles);
           setDb(result.state.db);
-          loadedTeam = result.state.team;
-          setIsDataReady(true);
-        } else {
           setIsDataReady(true);
         }
 
-        // Se houver sessão ativa, sincroniza e entra
+        const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          setLoadingStep('Sincronizando Perfil...');
-          await syncUserAndEnter(session, loadedTeam);
+          await syncUserAndEnter(
+            session, 
+            result.state?.team || [], 
+            result.state?.availableRoles || availableRoles, 
+            result.state?.db || db
+          );
         } else {
           setIsLoading(false);
         }
 
-        // Backdoor para emergência
-        if (localStorage.getItem('omega_backdoor_session') === 'true') {
-          setCurrentUser({ id: 'backdoor-ceo', name: 'Diretoria (Mestre)', email: 'diretoria@omega.system', role: DefaultUserRole.CEO, isActive: true, isApproved: true });
-          setIsAuthenticated(true);
-          setIsLoading(false);
-        }
+        // --- REALTIME ---
+        const channel = supabase
+          .channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'project_state', filter: 'id=eq.current_omega_config' },
+            (payload: any) => {
+              const newData = payload.new.data as AppState;
+              const dataString = JSON.stringify(newData);
+              
+              if (dataString !== lastIncomingData.current) {
+                lastIncomingData.current = dataString;
+                setTeam(newData.team);
+                setAvailableRoles(newData.availableRoles);
+                setDb(newData.db);
+                if (currentUser) {
+                  const updatedMe = newData.team.find(u => u.email === currentUser.email);
+                  if (updatedMe) setCurrentUser(updatedMe);
+                }
+              }
+            }
+          )
+          .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
 
       } catch (err) {
-        console.error("Erro Crítico na Inicialização:", err);
+        setLoadError('Falha na conexão com Ômega Cloud.');
         setIsLoading(false);
       }
     };
@@ -164,11 +191,10 @@ const App: React.FC = () => {
       if (event === 'SIGNED_IN' && session) {
         setIsLoading(true);
         const result = await dbService.loadState();
-        await syncUserAndEnter(session, result.state?.team || team);
+        await syncUserAndEnter(session, result.state?.team || [], result.state?.availableRoles || availableRoles, result.state?.db || db);
       } else if (event === 'SIGNED_OUT') {
         setIsAuthenticated(false);
         setCurrentUser(null);
-        localStorage.removeItem('omega_backdoor_session');
         setIsLoading(false);
       }
     });
@@ -176,17 +202,25 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Sincronização automática para nuvem quando houver mudanças no estado
   useEffect(() => {
     if (!isLoading && !showSetupModal && isAuthenticated && isDataReady) {
-      const sync = async () => {
-        setDbStatus('syncing');
-        const result = await dbService.saveState({ team, availableRoles, db });
-        if (result.success) setDbStatus('connected');
-        else setDbStatus('error');
-      };
-      const timeout = setTimeout(sync, 2000);
-      return () => clearTimeout(timeout);
+      const currentState = { team, availableRoles, db };
+      const currentStateString = JSON.stringify(currentState);
+
+      if (currentStateString !== lastIncomingData.current) {
+        const sync = async () => {
+          setDbStatus('syncing');
+          const result = await dbService.saveState(currentState);
+          if (result.success) {
+            setDbStatus('connected');
+            lastIncomingData.current = currentStateString;
+          } else {
+            setDbStatus('error');
+          }
+        };
+        const timeout = setTimeout(sync, 800);
+        return () => clearTimeout(timeout);
+      }
     }
   }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated, isDataReady]);
 
@@ -199,19 +233,13 @@ const App: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email === 'Omega' && password === 'eu que mando') {
-       localStorage.setItem('omega_backdoor_session', 'true');
-       setCurrentUser({ id: 'backdoor-ceo', name: 'Diretoria (Mestre)', email: 'diretoria@omega.system', role: DefaultUserRole.CEO, isActive: true, isApproved: true });
-       setIsAuthenticated(true);
-       return;
-    }
     setIsLoading(true);
-    setLoadingStep('Autenticando...');
+    setLoadError(null);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } catch (err: any) {
-      alert('Falha: ' + err.message);
+      alert('Acesso Negado: ' + err.message);
       setIsLoading(false);
     }
   };
@@ -220,16 +248,13 @@ const App: React.FC = () => {
     e.preventDefault();
     if (password.length < 6) return alert('Senha muito curta.');
     setIsLoading(true);
-    setLoadingStep('Criando Identidade...');
     try {
       const { data, error } = await supabase.auth.signUp({ 
-        email, 
-        password, 
-        options: { data: { full_name: fullName } } 
+        email, password, options: { data: { full_name: fullName } } 
       });
       if (error) throw error;
       if (data.user) {
-        alert('Identidade Protegida! Faça seu primeiro acesso.');
+        alert('Cadastro realizado! Faça seu login agora.');
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
@@ -240,7 +265,6 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    localStorage.removeItem('omega_backdoor_session');
     await supabase.auth.signOut();
   };
 
@@ -286,15 +310,25 @@ const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-6">
+      <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center p-8 space-y-6">
         <div className="w-16 h-16 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4">
           <p className="text-[10px] font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud</p>
-          <p className="text-gray-600 text-[8px] uppercase tracking-widest">{loadingStep}</p>
+          {loadError && (
+            <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl max-w-sm">
+               <div className="flex items-center gap-2 text-red-500 mb-2">
+                 <ServerCrash className="w-4 h-4" />
+                 <span className="text-[9px] font-black uppercase tracking-widest">Erro de Banco de Dados</span>
+               </div>
+               <p className="text-[10px] text-gray-400 italic leading-relaxed">{loadError}</p>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col items-center gap-2 mt-8">
-           <button onClick={() => setIsLoading(false)} className="text-[8px] text-gray-700 hover:text-gray-400 transition-colors uppercase border border-white/5 px-6 py-2 rounded-full">Entrar Manualmente</button>
-           <p className="text-[7px] text-gray-800 uppercase italic">Se a rede falhar, use o comando acima</p>
+        <div className="flex gap-4">
+          <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-[9px] text-gray-500 hover:text-white transition-colors uppercase border border-white/5 px-6 py-2 rounded-full">
+            <RefreshCw className="w-3 h-3" /> Reiniciar
+          </button>
+          <button onClick={() => setIsLoading(false)} className="text-[9px] text-teal-500/50 hover:text-teal-500 transition-colors uppercase border border-teal-500/10 px-6 py-2 rounded-full">Forçar Entrada</button>
         </div>
       </div>
     );
@@ -367,14 +401,21 @@ const App: React.FC = () => {
       {showSetupModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
           <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8 text-center">
-             <ShieldIcon className="w-16 h-16 text-teal-500 mx-auto" />
-             <h2 className="text-2xl font-black text-white uppercase italic">Nuvem Ômega Offline</h2>
-             <p className="text-gray-500 text-sm leading-relaxed">Execute o SQL no seu Console Supabase para liberar o Banco de Dados:</p>
-             <div className="relative group">
-                <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px] custom-scrollbar">{sqlSetup}</pre>
-                <button onClick={() => {navigator.clipboard.writeText(sqlSetup); alert('Copiado!')}} className="absolute top-4 right-4 bg-white/5 p-2 rounded-lg text-white hover:bg-white/10 transition-all"><Database className="w-4 h-4"/></button>
+             <div className="flex justify-center">
+                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center animate-pulse">
+                   <ServerCrash className="w-10 h-10 text-red-500" />
+                </div>
              </div>
-             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase italic hover:scale-105 transition-all">Sincronizar Protocolo</button>
+             <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">Erro de Configuração Supabase</h2>
+             <p className="text-gray-400 text-sm leading-relaxed px-4">O Banco de Dados precisa que você execute o SQL abaixo no seu Console Supabase para liberar o Ômega Cloud:</p>
+             <div className="relative group">
+                <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px] border border-white/5 custom-scrollbar">{sqlSetup}</pre>
+                <button onClick={() => {navigator.clipboard.writeText(sqlSetup); alert('SQL Copiado!')}} className="absolute top-4 right-4 bg-white/10 p-2 rounded-lg text-white hover:bg-teal-500 hover:text-black transition-all shadow-lg"><Database className="w-4 h-4"/></button>
+             </div>
+             <div className="space-y-4">
+                <p className="text-[10px] text-gray-500 italic">Tutorial: Menu Lateral Supabase > SQL Editor > New Query > Cole o código acima > Run</p>
+                <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase italic hover:scale-105 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.3)]">RECONECTAR SISTEMA</button>
+             </div>
           </div>
         </div>
       )}
