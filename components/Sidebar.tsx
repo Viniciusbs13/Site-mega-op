@@ -78,13 +78,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser,
                   {currentUser.name[0]}
                 </div>
                 <div className="overflow-hidden">
-                  <p className="text-[10px] font-black text-white uppercase truncate">{currentUser.name}</p>
-                  <p className="text-[8px] font-bold text-[#14b8a6] uppercase tracking-widest truncate">{currentUser.role.replace('_', ' ')}</p>
+                  <p className="text-[11px] font-black text-white uppercase truncate italic tracking-tighter">{currentUser.name}</p>
+                  <p className="text-[8px] font-bold text-[#14b8a6] uppercase tracking-[0.2em] truncate">{currentUser.role.replace('_', ' ')}</p>
                 </div>
              </div>
              <div className="pt-2 border-t border-white/5 flex items-center gap-2 text-gray-500">
-                <Mail className="w-3 h-3" />
-                <p className="text-[8px] font-medium truncate italic">{currentUser.email}</p>
+                <Mail className="w-3 h-3 text-teal-500/50" />
+                <p className="text-[9px] font-medium truncate italic text-gray-400">{currentUser.email}</p>
              </div>
           </div>
         </div>

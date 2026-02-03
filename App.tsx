@@ -12,7 +12,7 @@ import SalesView from './components/SalesView';
 import WikiView from './components/WikiView'; 
 import { dbService } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, LogOut, Lock, Database, ShieldCheck as ShieldIcon, Mail, Fingerprint, ChevronRight } from 'lucide-react';
+import { Hash, LogOut, Lock, Database, ShieldCheck as ShieldIcon, Mail, Fingerprint, ChevronRight, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -62,75 +62,80 @@ ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso Total" ON project_state;
 CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
 
+  // Função centralizada para definir o usuário e estado de autenticação
+  const syncUserSession = (session: any, teamData: User[]) => {
+    if (!session?.user) return;
+
+    if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
+      setCurrentUser({
+        id: 'vinicius-ceo',
+        authId: session.user.id,
+        email: session.user.email,
+        name: 'Vinícius Barbosa',
+        role: DefaultUserRole.CEO,
+        isActive: true,
+        isApproved: true
+      });
+      setIsAuthenticated(true);
+    } else {
+      const userMatch = teamData.find(u => u.authId === session.user.id || u.email === session.user.email);
+      if (userMatch) {
+        setCurrentUser({ ...userMatch, isApproved: true }); // Garante acesso imediato
+        setIsAuthenticated(true);
+      }
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
-      setIsLoading(true);
-      const result = await dbService.loadState();
-      
-      if (result.error === 'TABLE_NOT_FOUND') {
-        setShowSetupModal(true);
-      } else if (result.state) {
-        setTeam(result.state.team);
-        setAvailableRoles(result.state.availableRoles);
-        setDb(result.state.db);
-        setIsDataReady(true);
-      } else {
-        setIsDataReady(true);
-      }
+      try {
+        setIsLoading(true);
+        const result = await dbService.loadState();
+        
+        let currentTeam = team;
+        if (result.error === 'TABLE_NOT_FOUND') {
+          setShowSetupModal(true);
+        } else if (result.state) {
+          setTeam(result.state.team);
+          setAvailableRoles(result.state.availableRoles);
+          setDb(result.state.db);
+          currentTeam = result.state.team;
+          setIsDataReady(true);
+        } else {
+          setIsDataReady(true);
+        }
 
-      const isOmegaBackdoor = localStorage.getItem('omega_backdoor_session') === 'true';
-      if (isOmegaBackdoor) {
-        setCurrentUser({
-          id: 'backdoor-ceo',
-          name: 'Diretoria (Mestre)',
-          email: 'diretoria@omega.system',
-          role: DefaultUserRole.CEO,
-          isActive: true,
-          isApproved: true
-        });
-        setIsAuthenticated(true);
-        setIsLoading(false);
-        return;
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
+        // Backdoor Session
+        const isOmegaBackdoor = localStorage.getItem('omega_backdoor_session') === 'true';
+        if (isOmegaBackdoor) {
           setCurrentUser({
-            id: 'vinicius-ceo',
-            authId: session.user.id,
-            email: session.user.email,
-            name: 'Vinícius Barbosa',
+            id: 'backdoor-ceo',
+            name: 'Diretoria (Mestre)',
+            email: 'diretoria@omega.system',
             role: DefaultUserRole.CEO,
             isActive: true,
             isApproved: true
           });
           setIsAuthenticated(true);
-        } else {
-          const userMatch = result.state?.team.find(u => u.authId === session.user.id || u.email === session.user.email);
-          if (userMatch) {
-            setCurrentUser(userMatch);
-            setIsAuthenticated(true);
-          }
+          return;
         }
+
+        // Check Supabase Session
+        const { data: { session } } = await supabase.auth.getSession();
+        syncUserSession(session, currentTeam);
+
+      } catch (err) {
+        console.error("Erro na inicialização:", err);
+      } finally {
+        setIsLoading(false); // Sempre remove o spinner
       }
-      setIsLoading(false);
     };
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
-           setCurrentUser({ id: 'vinicius-ceo', authId: session.user.id, email: session.user.email, name: 'Vinícius Barbosa', role: DefaultUserRole.CEO, isActive: true, isApproved: true });
-           setIsAuthenticated(true);
-        } else {
-          const res = await dbService.loadState();
-          const user = res.state?.team.find(u => u.authId === session.user.id || u.email === session.user.email);
-          if (user) {
-            setCurrentUser(user);
-            setIsAuthenticated(true);
-          }
-        }
+        const result = await dbService.loadState();
+        syncUserSession(session, result.state?.team || team);
       } else if (event === 'SIGNED_OUT') {
         setIsAuthenticated(false);
         setCurrentUser(null);
@@ -149,7 +154,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USI
         if (result.success) setDbStatus('connected');
         else setDbStatus('error');
       };
-      const timeout = setTimeout(sync, 1200);
+      const timeout = setTimeout(sync, 1500);
       return () => clearTimeout(timeout);
     }
   }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated, isDataReady]);
@@ -167,8 +172,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USI
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } catch (err: any) {
-      alert('Falha na autenticação Cloud.');
-    } finally {
+      alert('Falha na autenticação: ' + err.message);
       setIsLoading(false);
     }
   };
@@ -193,12 +197,12 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USI
           name: fullName,
           role: isVinicius ? DefaultUserRole.CEO : requestedRole,
           isActive: true,
-          isApproved: true // AUTO-APPROVAL: Acesso imediato liberado
+          isApproved: true
         };
         const updatedTeam = [...team, newUser];
         setTeam(updatedTeam);
         await dbService.saveState({ team: updatedTeam, availableRoles, db });
-        alert(isVinicius ? 'Acesso Master Liberado!' : 'Sessão Iniciada! Bem-vindo ao time.');
+        alert('Identidade Criada! Clique em Acessar agora.');
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
@@ -298,6 +302,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon, authenticated USI
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
         <p className="text-[10px] font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
+        <button onClick={() => setIsLoading(false)} className="text-[8px] text-gray-700 hover:text-gray-500 transition-colors uppercase mt-4">Forçar Entrada</button>
       </div>
     );
   }
