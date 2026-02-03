@@ -23,6 +23,7 @@ export interface DriveItem {
   id: string;
   name: string;
   type: 'FILE' | 'FOLDER';
+  fileType?: 'SHEET' | 'DOC';
   content?: string;
   parentId: string | null;
   ownerId: string;

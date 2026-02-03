@@ -14,7 +14,7 @@ import WikiView from './components/WikiView';
 import SettingsView from './components/SettingsView';
 import { dbService, DbResult } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles } from 'lucide-react';
+import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles, Trophy } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -45,12 +45,42 @@ const App: React.FC = () => {
 
   const lastIncomingData = useRef<string>("");
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recentSaleHandled = useRef<string | null>(null);
+  const lastHandledSaleId = useRef<string | null>(null);
 
-  // Efeito de Realtime - Escuta o banco de dados e atualiza a tela de todos
+  // Função para tocar o som do Sino (Web Audio API)
+  const playBellSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // Nota lá
+      oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 1);
+
+      gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 2);
+    } catch (e) {
+      console.warn("Audio Context not supported or blocked by browser.");
+    }
+  };
+
+  // Disparador de Celebração Visual e Sonora
+  const triggerCelebration = (sellerName: string, value: number) => {
+    setGlobalSaleCelebration({ sellerName, value });
+    playBellSound();
+    setTimeout(() => setGlobalSaleCelebration(null), 7000);
+  };
+
+  // Efeito de Realtime - Escuta o banco de dados
   useEffect(() => {
     const init = async () => {
-      // 1. Carrega dados iniciais
       const result = await dbService.loadState();
       if (result.state) {
         setTeam(result.state.team);
@@ -58,9 +88,12 @@ const App: React.FC = () => {
         setDb(result.state.db);
         setNotifications(result.state.notifications || {});
         lastIncomingData.current = JSON.stringify(result.state);
+        
+        if (result.state.recentSale) {
+          lastHandledSaleId.current = result.state.recentSale.id;
+        }
       }
 
-      // 2. Verifica Autenticação
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         handleAuth(session, result.state?.team || []);
@@ -68,28 +101,21 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
 
-      // 3. Inscreve no Canal Master do Supabase (Elimina F5)
       const channel = supabase.channel('omega-master-sync')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'project_state' }, (payload: any) => {
           const newData = payload.new.data as AppState;
           const newDataString = JSON.stringify(newData);
 
-          // Se a mudança veio de outro usuário, aplica na tela agora
           if (newDataString !== lastIncomingData.current) {
             lastIncomingData.current = newDataString;
             setTeam(newData.team);
             setDb(newData.db);
             setNotifications(newData.notifications || {});
             
-            // CELEBRAÇÃO DE VENDA: Se o ID da venda recente mudou, mostre para todos
-            if (newData.recentSale && newData.recentSale.id !== recentSaleHandled.current) {
-              recentSaleHandled.current = newData.recentSale.id;
-              setGlobalSaleCelebration({ 
-                sellerName: newData.recentSale.sellerName, 
-                value: newData.recentSale.value 
-              });
-              // Fecha o alerta após 6 segundos automaticamente
-              setTimeout(() => setGlobalSaleCelebration(null), 6000);
+            // Verifica se há uma nova venda para celebrar (dispara para os outros)
+            if (newData.recentSale && newData.recentSale.id !== lastHandledSaleId.current) {
+              lastHandledSaleId.current = newData.recentSale.id;
+              triggerCelebration(newData.recentSale.sellerName, newData.recentSale.value);
             }
           }
         }).subscribe();
@@ -116,14 +142,7 @@ const App: React.FC = () => {
       const updatedTeam = [...currentTeam, userMatch];
       setTeam(updatedTeam);
       await forceCloudSync(updatedTeam, db, notifications);
-    } else if (!userMatch.authId) {
-      // Sincroniza o ID fixo se o usuário já existia mas não tinha authId
-      const updatedTeam = currentTeam.map(u => u.id === userMatch!.id ? { ...u, authId: session.user.id } : u);
-      setTeam(updatedTeam);
-      userMatch = { ...userMatch, authId: session.user.id };
-      await forceCloudSync(updatedTeam, db, notifications);
     }
-
     setCurrentUser(userMatch);
     setIsAuthenticated(true);
     setIsLoading(false);
@@ -131,15 +150,8 @@ const App: React.FC = () => {
 
   const forceCloudSync = async (updatedTeam: User[], updatedDb: MonthlyData, updatedNotifs: any, updatedSale: any = null) => {
     setDbStatus('syncing');
-    const state: AppState = { 
-      team: updatedTeam, 
-      availableRoles, 
-      db: updatedDb, 
-      notifications: updatedNotifs,
-      recentSale: updatedSale 
-    };
-    const stateString = JSON.stringify(state);
-    lastIncomingData.current = stateString;
+    const state: AppState = { team: updatedTeam, availableRoles, db: updatedDb, notifications: updatedNotifs, recentSale: updatedSale };
+    lastIncomingData.current = JSON.stringify(state);
     const result = await dbService.saveState(state);
     setDbStatus(result.success ? 'connected' : 'error');
   };
@@ -149,41 +161,14 @@ const App: React.FC = () => {
     setDb(newDb);
     setNotifications(newNotifs);
     
-    // Se for venda ou chat, salva na hora. Se for edição de texto, aguarda 500ms
-    const isInstant = newSale !== null || newDb[selectedMonth].chatMessages?.length !== db[selectedMonth]?.chatMessages?.length;
-    
-    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    
-    if (isInstant) {
+    if (newSale) {
       forceCloudSync(newTeam, newDb, newNotifs, newSale);
     } else {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = setTimeout(() => {
         forceCloudSync(newTeam, newDb, newNotifs, newSale);
       }, 500);
     }
-  };
-
-  const handleSendChatMessage = () => {
-    if (!chatInput.trim() || !currentUser) return;
-    
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      senderId: currentUser.id,
-      senderName: currentUser.name,
-      text: chatInput,
-      timestamp: new Date().toLocaleTimeString()
-    };
-
-    const updatedDb = {
-      ...db,
-      [selectedMonth]: {
-        ...currentData,
-        chatMessages: [...(currentData.chatMessages || []), newMessage]
-      }
-    };
-
-    setChatInput(''); 
-    updateStateAndSync(team, updatedDb, notifications);
   };
 
   const handleRegisterSale = (uid: string, val: number, cname: string) => {
@@ -191,40 +176,36 @@ const App: React.FC = () => {
     const updatedTeam = team.map(u => u.id === uid ? { ...u, salesVolume: (u.salesVolume || 0) + val } : u);
     
     const newClient: Client = { 
-      id: Math.random().toString(36).substr(2,9), 
-      name: cname, 
-      industry: 'Novo Contrato', 
-      health: 'Estável', 
-      progress: 0, 
-      assignedUserIds: [uid], 
-      salesId: uid, 
-      contractValue: val, 
-      statusFlag: 'GREEN', 
-      folder: {} 
+      id: Math.random().toString(36).substr(2,9), name: cname, industry: 'Novo Contrato', health: 'Estável', progress: 0, assignedUserIds: [uid], salesId: uid, contractValue: val, statusFlag: 'GREEN', folder: {} 
     };
 
     const updatedDb = { 
       ...db, 
       [selectedMonth]: { 
         ...currentData, 
-        salesGoal: { 
-          ...currentData.salesGoal, 
-          currentValue: currentData.salesGoal.currentValue + val, 
-          totalSales: currentData.salesGoal.totalSales + 1 
-        }, 
+        salesGoal: { ...currentData.salesGoal, currentValue: currentData.salesGoal.currentValue + val, totalSales: currentData.salesGoal.totalSales + 1 }, 
         clients: [...currentData.clients, newClient] 
       } 
     };
 
-    // Sinal de celebração para todos os usuários
-    const saleSignal = { 
-      id: Date.now().toString(), 
-      sellerName: seller?.name || currentUser?.name || 'Vendedor', 
-      value: val, 
-      timestamp: Date.now() 
-    };
+    const saleId = Date.now().toString();
+    const sellerName = seller?.name || currentUser?.name || 'Vendedor';
+    const saleSignal = { id: saleId, sellerName, value: val, timestamp: Date.now() };
 
+    // DISPARO LOCAL IMEDIATO (Para quem está vendendo ver na hora)
+    lastHandledSaleId.current = saleId;
+    triggerCelebration(sellerName, val);
+    
+    // Sincroniza com a nuvem para os outros
     updateStateAndSync(updatedTeam, updatedDb, notifications, saleSignal);
+  };
+
+  const handleSendChatMessage = () => {
+    if (!chatInput.trim() || !currentUser) return;
+    const newMessage: ChatMessage = { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: new Date().toLocaleTimeString() };
+    const updatedDb = { ...db, [selectedMonth]: { ...currentData, chatMessages: [...(currentData.chatMessages || []), newMessage] } };
+    setChatInput(''); 
+    updateStateAndSync(team, updatedDb, notifications);
   };
 
   const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
@@ -236,15 +217,15 @@ const App: React.FC = () => {
       <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-8 text-center">
           <div className="w-20 h-20 bg-[#14b8a6] rounded-3xl flex items-center justify-center mx-auto shadow-2xl rotate-3"><span className="text-black font-black text-4xl italic">Ω</span></div>
-          <h1 className="text-3xl font-black text-white italic uppercase">Acesso Restrito</h1>
-          <div className="bg-[#111] border border-white/5 p-8 rounded-3xl space-y-4">
-             <input type="email" placeholder="E-mail" onChange={e => (window as any).email = e.target.value} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white outline-none" />
-             <input type="password" placeholder="Senha" onChange={e => (window as any).pass = e.target.value} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white outline-none" />
+          <h1 className="text-3xl font-black text-white italic uppercase tracking-tighter">Protocolo de Acesso</h1>
+          <div className="bg-[#111] border border-white/5 p-8 rounded-3xl space-y-4 shadow-2xl">
+             <input type="email" placeholder="E-mail Corporativo" onChange={e => (window as any).email = e.target.value} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-teal-500 transition-all" />
+             <input type="password" placeholder="Senha Ômega" onChange={e => (window as any).pass = e.target.value} className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-teal-500 transition-all" />
              <button onClick={async () => {
                 const { error } = await supabase.auth.signInWithPassword({ email: (window as any).email, password: (window as any).pass });
                 if (error) alert(error.message);
                 else window.location.reload();
-             }} className="w-full bg-teal-500 text-black py-4 rounded-xl font-black uppercase">Entrar no Sistema</button>
+             }} className="w-full bg-teal-500 text-black py-4 rounded-xl font-black uppercase hover:scale-105 transition-all">Entrar no Sistema</button>
           </div>
         </div>
       </div>
@@ -261,35 +242,23 @@ const App: React.FC = () => {
       case 'my-workspace': return <ManagerWorkspace managerId={currentUser.id} clients={myClients} tasks={myTasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={items => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, drive: items } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} onUpdateNotes={(id, n) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) } }, notifications)} onUpdateStatusFlag={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) } }, notifications)} onUpdateFolder={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) } }, notifications)} />;
       case 'checklists': return <ChecklistView tasks={myTasks} currentUser={currentUser} team={team} onAddTask={t => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] } }, notifications)} onRemoveTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.filter(t => t.id !== id) } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} />;
       case 'team': return <TeamView team={team} currentUser={currentUser} availableRoles={availableRoles} onUpdateRole={(id, r) => updateStateAndSync(team.map(u => u.id === id ? { ...u, role: r } : u), db, notifications)} onAddMember={(n, r) => updateStateAndSync([...team, { id: Math.random().toString(36).substr(2, 9), name: n, role: r, isActive: true, isApproved: true }], db, notifications)} onRemoveMember={id => updateStateAndSync(team.filter(u => u.id !== id), db, notifications)} onAddRole={r => setAvailableRoles([...availableRoles, r])} onToggleActive={id => updateStateAndSync(team.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u), db, notifications)} />;
-      case 'clients': return <SquadsView clients={currentData.clients} team={team} currentUser={currentUser} onAssignUsers={(cid, uids) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, assignedUserIds: uids } : c) } }, notifications)} onRemoveClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.filter(c => c.id !== cid) } }, notifications)} onTogglePauseClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) } }, notifications)} />;
       case 'chat': return (
         <div className="max-w-4xl mx-auto h-full flex flex-col pb-6">
-          <header className="mb-6 flex items-center justify-between px-4">
-             <div><h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Comunicação do Time</h2><p className="text-xs text-teal-500 font-bold uppercase tracking-widest">Chat em Tempo Real</p></div>
+          <header className="mb-6 px-4 flex items-center justify-between">
+             <div><h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Comunicação Realtime</h2><p className="text-xs text-teal-500 font-bold uppercase tracking-widest">Canal Global Ômega</p></div>
           </header>
           <div className="flex-1 bg-[#111] rounded-[40px] border border-white/5 overflow-hidden flex flex-col p-8 space-y-4 custom-scrollbar">
-            {currentData.chatMessages?.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-20 italic uppercase text-[10px] tracking-widest text-center"><Hash className="w-12 h-12 mb-4" />Nenhuma mensagem no canal principal ainda...</div>}
+            {currentData.chatMessages?.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-20 italic uppercase text-[10px] tracking-widest text-center"><Hash className="w-12 h-12 mb-4" />Nenhuma transmissão detectada...</div>}
             {currentData.chatMessages?.map(m => (
               <div key={m.id} className={`flex flex-col ${m.senderId === currentUser.id ? 'items-end' : 'items-start'}`}>
-                <span className="text-[9px] text-gray-600 mb-1 font-bold uppercase">{m.senderName} • {m.timestamp}</span>
+                <span className="text-[9px] text-gray-600 mb-1 font-bold uppercase tracking-widest">{m.senderName} • {m.timestamp}</span>
                 <div className={`px-5 py-3 rounded-2xl text-sm ${m.senderId === currentUser.id ? 'bg-[#14b8a6] text-black font-bold shadow-lg shadow-teal-500/10' : 'bg-white/5 text-white'}`}>{m.text}</div>
               </div>
             ))}
           </div>
           <div className="mt-6 flex gap-4">
-            <input 
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyPress={e => e.key === 'Enter' && handleSendChatMessage()} 
-              placeholder="Digite sua mensagem para o time..." 
-              className="flex-1 bg-[#111] border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all" 
-            />
-            <button 
-              onClick={handleSendChatMessage} 
-              className="bg-teal-500 px-10 rounded-2xl text-black font-black uppercase flex items-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-teal-500/20"
-            >
-              <Send className="w-4 h-4" /> Enviar
-            </button>
+            <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleSendChatMessage()} placeholder="Transmitir comando..." className="flex-1 bg-[#111] border border-white/5 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all shadow-inner" />
+            <button onClick={handleSendChatMessage} className="bg-teal-500 px-10 rounded-2xl text-black font-black uppercase flex items-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-teal-500/20"><Send className="w-4 h-4" /> Enviar</button>
           </div>
         </div>
       );
@@ -304,36 +273,37 @@ const App: React.FC = () => {
       
       {/* TELA DE CELEBRAÇÃO DE VENDA (FLASH) */}
       {globalSaleCelebration && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in zoom-in duration-500">
-          <div className="text-center space-y-8 p-16 bg-white/[0.02] rounded-[80px] border border-white/10 shadow-[0_0_150px_rgba(20,184,166,0.4)] relative">
-            <div className="absolute inset-0 bg-gradient-to-b from-teal-500/10 to-transparent rounded-[80px]"></div>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/98 backdrop-blur-3xl animate-in fade-in zoom-in duration-500">
+          <div className="text-center space-y-10 p-20 bg-white/[0.01] rounded-[100px] border border-white/10 shadow-[0_0_200px_rgba(20,184,166,0.5)] relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-b from-teal-500/10 to-transparent"></div>
             
             <div className="relative z-10 space-y-10">
               <div className="relative">
-                <div className="absolute inset-0 blur-[50px] bg-teal-500/20 rounded-full"></div>
-                <Bell className="w-56 h-56 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_30px_rgba(20,184,166,0.8)]" />
+                <div className="absolute inset-0 blur-[80px] bg-teal-500/30 rounded-full"></div>
+                <Bell className="w-64 h-64 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_50px_rgba(20,184,166,1)]" />
               </div>
               
-              <div className="space-y-4">
-                <div className="flex items-center justify-center gap-4 text-teal-500">
-                  <Sparkles className="w-8 h-8 animate-pulse" />
-                  <h2 className="text-7xl font-black text-white uppercase italic tracking-tighter">VENDA REGISTRADA!</h2>
-                  <Sparkles className="w-8 h-8 animate-pulse" />
+              <div className="space-y-6">
+                <div className="flex items-center justify-center gap-6">
+                  <Sparkles className="w-10 h-10 text-teal-400 animate-pulse" />
+                  <h2 className="text-8xl font-black text-white uppercase italic tracking-tighter">VENDA FECHADA!</h2>
+                  <Sparkles className="w-10 h-10 text-teal-400 animate-pulse" />
                 </div>
                 
-                <p className="text-4xl font-bold text-teal-400 uppercase tracking-[0.2em]">{globalSaleCelebration.sellerName}</p>
+                <p className="text-5xl font-black text-teal-400 uppercase tracking-[0.3em] italic">{globalSaleCelebration.sellerName}</p>
                 
-                <div className="bg-black/40 px-12 py-6 rounded-[40px] border border-white/5 inline-block">
-                  <p className="text-7xl font-black text-white">R$ {globalSaleCelebration.value.toLocaleString()}</p>
+                <div className="bg-black/60 px-16 py-8 rounded-[50px] border border-white/10 inline-block shadow-2xl">
+                  <p className="text-8xl font-black text-white flex items-center gap-4">
+                    <span className="text-4xl text-teal-500">R$</span> {globalSaleCelebration.value.toLocaleString()}
+                  </p>
                 </div>
               </div>
 
-              <button 
-                onClick={() => setGlobalSaleCelebration(null)}
-                className="text-[10px] font-black text-gray-600 uppercase tracking-widest hover:text-white transition-colors"
-              >
-                Clique para fechar
-              </button>
+              <div className="flex justify-center gap-3">
+                 {[1,2,3,4,5].map(i => <Trophy key={i} className="w-8 h-8 text-teal-500/30 animate-bounce" style={{animationDelay: `${i * 0.2}s`}} />)}
+              </div>
+
+              <button onClick={() => setGlobalSaleCelebration(null)} className="text-[10px] font-black text-gray-700 uppercase tracking-widest hover:text-white transition-colors border border-white/5 px-6 py-2 rounded-full">Fechar Painel</button>
             </div>
           </div>
         </div>
