@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS project_state (
 -- 2. HABILITAR SEGURANÇA
 ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 
--- 3. POLÍTICAS ACESSO ANÔNIMO
+-- 3. POLÍTICAS ACESSO ANÔNIMO (ESSENCIAL PARA O BACKDOOR)
 DROP POLICY IF EXISTS "Acesso Total" ON project_state;
 CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH CHECK (true);`;
 
@@ -69,6 +69,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     const init = async () => {
       setIsLoading(true);
       
+      // 1. Carregar dados do banco de dados (Supabase ou LocalStorage)
       const result = await dbService.loadState();
       let currentTeam = team;
 
@@ -81,10 +82,21 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         currentTeam = result.state.team;
       }
 
+      // 2. Verificar Backdoor de Sessão (Omega)
+      const isOmegaBackdoor = localStorage.getItem('omega_backdoor_session') === 'true';
+      if (isOmegaBackdoor) {
+        const ceoUser = currentTeam.find(u => u.role === DefaultUserRole.CEO) || currentTeam[0];
+        setCurrentUser({ ...ceoUser, isApproved: true, isActive: true, role: DefaultUserRole.CEO });
+        setIsAuthenticated(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Verificar Sessão Oficial Supabase
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
-        // Se for o e-mail do Vinícius, garantir que ele entre como CEO independente do que estiver no banco
+        // Regra de Super-CEO para Vinícius
         if (session.user.email === 'viniciusbarbosasampaio71@gmail.com') {
           const viniciusUser: User = {
             id: 'vinicius-ceo',
@@ -98,6 +110,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
           setCurrentUser(viniciusUser);
           setIsAuthenticated(true);
         } else {
+          // Usuário Comum
           const userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === session.user.email);
           if (userMatch) {
             setCurrentUser(userMatch);
@@ -136,12 +149,14 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       } else if (event === 'SIGNED_OUT') {
         setIsAuthenticated(false);
         setCurrentUser(null);
+        localStorage.removeItem('omega_backdoor_session');
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // Sincronização Global Ativa
   useEffect(() => {
     if (!isLoading && !showSetupModal && isAuthenticated) {
       const sync = async () => {
@@ -154,6 +169,35 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       return () => clearTimeout(timeout);
     }
   }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // BACKDOOR SECRETO DO CEO (OMEGA)
+    if (email === 'Omega' && password === 'eu que mando') {
+       localStorage.setItem('omega_backdoor_session', 'true');
+       const ceoUser = team.find(u => u.role === DefaultUserRole.CEO) || team[0];
+       setCurrentUser({
+         ...ceoUser,
+         name: 'Diretoria Mestre',
+         isApproved: true,
+         isActive: true,
+         role: DefaultUserRole.CEO
+       });
+       setIsAuthenticated(true);
+       return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err: any) {
+      alert('Credenciais Supabase incorretas ou inexistentes.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,7 +214,6 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
       if (error) throw error;
       
       if (data.user) {
-        // Se o Vinícius se registrar, ele já nasce aprovado e CEO
         const isVinicius = email === 'viniciusbarbosasampaio71@gmail.com';
         const newUser: User = {
           id: isVinicius ? 'vinicius-ceo' : Math.random().toString(36).substr(2, 9),
@@ -187,47 +230,21 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         await dbService.saveState({ team: updatedTeam, availableRoles, db });
         
         if (isVinicius) {
-          alert('Bem-vindo, Vinícius! Acesso de CEO liberado automaticamente.');
+          alert('Conta de Administrador Mestre ativada!');
         } else {
-          alert('Solicitação enviada! O CEO revisará seu cadastro.');
+          alert('Solicitação de entrada registrada. Aguarde aprovação do CEO.');
         }
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
-      alert('Erro no cadastro: ' + err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // --- BACKDOOR SECRETO DO CEO ---
-    if (email === 'Omega' && password === 'eu que mando') {
-       const ceoUser = team.find(u => u.role === DefaultUserRole.CEO) || team[0];
-       setCurrentUser({
-         ...ceoUser,
-         isApproved: true,
-         isActive: true,
-         role: DefaultUserRole.CEO
-       });
-       setIsAuthenticated(true);
-       return;
-    }
-
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-    } catch (err: any) {
-      alert('Falha no login: ' + err.message);
+      alert('Erro no registro: ' + err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleLogout = async () => {
+    localStorage.removeItem('omega_backdoor_session');
     await supabase.auth.signOut();
     setIsAuthenticated(false);
     setCurrentUser(null);
@@ -246,7 +263,7 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
+        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Estabelecendo Conexão Segura...</p>
       </div>
     );
   }
@@ -318,21 +335,17 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 text-center font-inter">
          <div className="max-w-md space-y-8 animate-in zoom-in duration-500">
-            <div className="relative mx-auto w-32 h-32">
-               <Fingerprint className="w-full h-full text-teal-500 animate-pulse" />
-               <div className="absolute inset-0 border-4 border-teal-500/20 rounded-full animate-ping"></div>
-            </div>
+            <Fingerprint className="w-32 h-32 text-teal-500 mx-auto animate-pulse" />
             <div className="space-y-4">
-               <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Verificação em Curso</h2>
-               <p className="text-gray-500 text-sm leading-relaxed px-6">
-                 Olá, <span className="text-white font-bold">{currentUser.name}</span>. Sua identidade foi autenticada via Supabase, mas seu acesso ao painel de <span className="text-teal-500 font-bold">{currentUser.role.replace('_', ' ')}</span> ainda depende da validação da Diretoria Ômega.
+               <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Aguardando Aprovação</h2>
+               <p className="text-gray-500 text-sm leading-relaxed">
+                 Olá, <span className="text-white font-bold">{currentUser.name}</span>. Sua identidade foi verificada. 
+                 Agora você precisa que o CEO aprove seu acesso ao squad de <span className="text-teal-500 font-bold">{currentUser.role.replace('_', ' ')}</span>.
                </p>
             </div>
-            <div className="pt-8">
-               <button onClick={handleLogout} className="group text-xs font-black text-red-500 uppercase tracking-[0.2em] flex items-center gap-3 mx-auto hover:text-red-400 transition-colors">
-                  <LogOut className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> CANCELAR SOLICITAÇÃO E SAIR
-               </button>
-            </div>
+            <button onClick={handleLogout} className="text-xs font-black text-red-500 uppercase tracking-[0.2em] flex items-center gap-3 mx-auto hover:text-red-400">
+               <LogOut className="w-4 h-4" /> CANCELAR E SAIR
+            </button>
          </div>
       </div>
     );
@@ -427,10 +440,10 @@ CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH 
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
           <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8 text-center">
              <ShieldIcon className="w-16 h-16 text-teal-500 mx-auto" />
-             <h2 className="text-2xl font-black text-white uppercase italic">Setup de Banco Necessário</h2>
-             <p className="text-gray-500 text-sm leading-relaxed">Sua tabela Supabase não foi encontrada. Copie e execute o script abaixo no SQL Editor do Supabase:</p>
+             <h2 className="text-2xl font-black text-white uppercase italic">Setup Cloud Necessário</h2>
+             <p className="text-gray-500 text-sm leading-relaxed">Sua infraestrutura de dados ainda não foi detectada no Supabase.</p>
              <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px]">{sqlSetup}</pre>
-             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">Sincronizar Agora</button>
+             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">Tentar Reconectar</button>
           </div>
         </div>
       )}
