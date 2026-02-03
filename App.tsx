@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { UserRole, DefaultUserRole, Client, Task, User, MonthlyData, ClientStatus, SalesGoal, ChatMessage, ClientHealth, DriveItem, AppState } from './types';
+import { UserRole, DefaultUserRole, Client, Task, User, MonthlyData, ClientStatus, SalesGoal, ChatMessage, ClientHealth, DriveItem, AppState, Squad } from './types';
 import { INITIAL_CLIENTS, NAVIGATION_ITEMS, MANAGERS, MONTHS } from './constants';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import SquadsView from './components/SquadsView';
+import SquadsTabView from './components/SquadsTabView';
 import ChecklistView from './components/ChecklistView';
 import ManagerWorkspace from './components/ManagerWorkspace';
 import TeamView from './components/TeamView';
@@ -61,7 +62,8 @@ const App: React.FC = () => {
       salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' },
       chatMessages: [],
       drive: [],
-      wiki: []
+      wiki: [],
+      squads: []
     }
   });
 
@@ -76,7 +78,10 @@ const App: React.FC = () => {
   };
 
   const syncUserAndEnter = async (session: any, currentTeam: User[], currentRoles: string[], currentDb: MonthlyData) => {
-    if (!session?.user) return;
+    if (!session?.user) {
+      setIsLoading(false);
+      return;
+    }
     
     const userEmail = session.user.email;
     const isVinicius = userEmail === 'viniciusbarbosasampaio71@gmail.com';
@@ -96,7 +101,7 @@ const App: React.FC = () => {
         name: session.user.user_metadata?.full_name || fullName || userEmail?.split('@')[0] || 'Novo Membro',
         role: DefaultUserRole.MANAGER,
         isActive: true,
-        isApproved: true
+        isApproved: true // Onboarding imediato por padrão
       };
       const updatedTeam = [...currentTeam, newUser];
       setTeam(updatedTeam);
@@ -115,30 +120,42 @@ const App: React.FC = () => {
     const init = async () => {
       try {
         const result = await dbService.loadState();
-        
         if (result.error === 'TABLE_NOT_FOUND') {
-          setLoadError('A tabela do banco de dados não foi encontrada no Supabase.');
+          setLoadError('Sistema pendente: A tabela project_state não foi encontrada.');
           setShowSetupModal(true);
           return;
         }
 
+        let loadedTeam = result.state?.team || [];
+        let loadedDb = result.state?.db || db;
+        let loadedRoles = result.state?.availableRoles || availableRoles;
+
         if (result.state) {
-          setTeam(result.state.team);
-          setAvailableRoles(result.state.availableRoles);
-          setDb(result.state.db);
+          setTeam(loadedTeam);
+          setAvailableRoles(loadedRoles);
+          setDb(loadedDb);
           lastIncomingData.current = JSON.stringify(result.state);
         }
         setIsDataReady(true);
 
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          await syncUserAndEnter(session, result.state?.team || [], result.state?.availableRoles || availableRoles, result.state?.db || db);
+          await syncUserAndEnter(session, loadedTeam, loadedRoles, loadedDb);
         } else {
           setIsLoading(false);
         }
 
+        const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_IN' && session) {
+            await syncUserAndEnter(session, team, availableRoles, db);
+          } else if (event === 'SIGNED_OUT') {
+            setIsAuthenticated(false);
+            setCurrentUser(null);
+          }
+        });
+
         const channel = supabase
-          .channel('omega-cloud-sync')
+          .channel('omega-realtime-master')
           .on(
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'project_state', filter: 'id=eq.current_omega_config' },
@@ -151,13 +168,17 @@ const App: React.FC = () => {
                   setTeam(newData.team);
                   setDb(newData.db);
                   setAvailableRoles(newData.availableRoles);
+                  if (currentUser) {
+                    const updatedMe = newData.team.find(u => u.id === currentUser.id || u.email === currentUser.email);
+                    if (updatedMe) setCurrentUser(updatedMe);
+                  }
                 }
               }
             }
           )
           .subscribe();
 
-        return () => { supabase.removeChannel(channel); };
+        return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
       } catch (err) {
         setIsLoading(false);
       }
@@ -169,20 +190,16 @@ const App: React.FC = () => {
     if (!isLoading && !showSetupModal && isAuthenticated && isDataReady) {
       const currentState = { team, availableRoles, db };
       const currentStateString = JSON.stringify(currentState);
-
       if (currentStateString !== lastIncomingData.current) {
-        const sync = async () => {
+        const syncTimeout = setTimeout(async () => {
           setDbStatus('syncing');
           const result = await dbService.saveState(currentState);
           if (result.success) {
             setDbStatus('connected');
             lastIncomingData.current = currentStateString;
-          } else {
-            setDbStatus('error');
-          }
-        };
-        const timeout = setTimeout(sync, 1500);
-        return () => clearTimeout(timeout);
+          } else { setDbStatus('error'); }
+        }, 1500);
+        return () => clearTimeout(syncTimeout);
       }
     }
   }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated, isDataReady]);
@@ -192,7 +209,7 @@ const App: React.FC = () => {
     setDb(updatedDb);
   };
 
-  const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [] };
+  const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
 
   const renderContent = () => {
     if (!currentUser) return null;
@@ -201,15 +218,21 @@ const App: React.FC = () => {
       case 'team': return <TeamView team={team} currentUser={currentUser} availableRoles={availableRoles} onUpdateRole={(id, r) => setTeam(prev => prev.map(u => u.id === id ? { ...u, role: r } : u))} onAddMember={(name, role) => setTeam(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name, role, isActive: true, isApproved: true }])} onRemoveMember={(id) => setTeam(prev => prev.filter(u => u.id !== id))} onAddRole={(role) => setAvailableRoles([...availableRoles, role])} onToggleActive={(id) => setTeam(prev => prev.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u))} />;
       case 'commercial': return <SalesView goal={currentData.salesGoal} team={team} clients={currentData.clients} currentUser={currentUser} onUpdateGoal={u => updateCurrentMonthData({ salesGoal: { ...currentData.salesGoal, ...u } })} onRegisterSale={(uid, val, cname) => { 
         const newTeam = team.map(usr => usr.id === uid ? { ...usr, salesVolume: (usr.salesVolume || 0) + val } : usr);
-        const newClient: Client = { id: Math.random().toString(36).substr(2,9), name: cname, industry: 'Novo Contrato', health: 'Estável', progress: 0, managerId: '', salesId: uid, contractValue: val, statusFlag: 'GREEN', isPaused: false, folder: { briefing: '', accessLinks: '', operationalHistory: '' } };
+        const newClient: Client = { id: Math.random().toString(36).substr(2,9), name: cname, industry: 'Novo Contrato', health: 'Estável', progress: 0, assignedUserIds: [uid], salesId: uid, contractValue: val, statusFlag: 'GREEN', isPaused: false, folder: { briefing: '', accessLinks: '', operationalHistory: '' } };
         const newDb = { ...db, [selectedMonth]: { ...currentData, salesGoal: { ...currentData.salesGoal, currentValue: currentData.salesGoal.currentValue + val, totalSales: currentData.salesGoal.totalSales + 1 }, clients: [...currentData.clients, newClient] } };
-        setTeam(newTeam);
-        setDb(newDb);
-        forceCloudSync(newTeam, newDb);
+        setTeam(newTeam); setDb(newDb); forceCloudSync(newTeam, newDb);
       }} onUpdateUserGoal={(id, pg, sg) => setTeam(prev => prev.map(u => u.id === id ? { ...u, personalGoal: pg, superGoal: sg } : u))} onUpdateClientNotes={(cid, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, closingNotes: n } : c) })} />;
+      case 'squads-mgmt': return <SquadsTabView squads={currentData.squads || []} team={team} currentUser={currentUser} onUpdateSquads={s => updateCurrentMonthData({ squads: s })} onAddTask={t => updateCurrentMonthData({ tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] })} />;
       case 'checklists': return <ChecklistView tasks={currentData.tasks} currentUser={currentUser} onAddTask={t => updateCurrentMonthData({ tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] })} onRemoveTask={id => updateCurrentMonthData({ tasks: currentData.tasks.filter(t => t.id !== id) })} />;
-      case 'my-workspace': return <ManagerWorkspace managerId={currentUser.id} clients={currentData.clients} tasks={currentData.tasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })} onToggleTask={id => updateCurrentMonthData({ tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) })} onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} onUpdateFolder={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) })} />;
-      case 'clients': return <SquadsView clients={currentData.clients} currentUser={currentUser} onAssignManager={(cid, mid) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, managerId: mid } : c) })} onRemoveClient={(cid) => updateCurrentMonthData({ clients: currentData.clients.filter(c => c.id !== cid) })} onTogglePauseClient={(cid) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) })} />;
+      case 'my-workspace': {
+        const visibleClients = currentData.clients.filter(c => 
+          currentUser.role === DefaultUserRole.CEO || 
+          currentUser.role === DefaultUserRole.SALES || 
+          c.assignedUserIds?.includes(currentUser.id)
+        );
+        return <ManagerWorkspace managerId={currentUser.id} clients={visibleClients} tasks={currentData.tasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })} onToggleTask={id => updateCurrentMonthData({ tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) })} onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} onUpdateFolder={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) })} />;
+      }
+      case 'clients': return <SquadsView clients={currentData.clients} team={team} currentUser={currentUser} onAssignUsers={(cid, uids) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, assignedUserIds: uids } : c) })} onRemoveClient={(cid) => updateCurrentMonthData({ clients: currentData.clients.filter(c => c.id !== cid) })} onTogglePauseClient={(cid) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) })} />;
       case 'notes': return <WikiView wiki={currentData.wiki || []} currentUser={currentUser} onUpdateWiki={(newItems) => updateCurrentMonthData({ wiki: newItems })} />;
       case 'chat': return (
         <div className="flex flex-col h-full max-w-[1000px] mx-auto">
@@ -235,111 +258,53 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-8 p-12">
-        <div className="w-16 h-16 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <div className="text-center space-y-4 max-w-sm">
-          <p className="text-[10px] font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Iniciando Protocolo Ômega</p>
-          {loadError && (
-            <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl">
-              <span className="text-[9px] font-black text-red-500 uppercase block mb-1">Status de Conexão: FALHA</span>
-              <p className="text-[10px] text-gray-400 italic leading-relaxed">{loadError}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (isLoading) return <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-8 p-12"><div className="w-16 h-16 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div><p className="text-[10px] font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud</p></div>;
 
-  if (!isAuthenticated) {
-    return (
-      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-inter">
-        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-[#14b8a6]/10 blur-[150px] rounded-full"></div>
-        <div className="w-full max-w-md relative z-10 space-y-8">
-          <div className="text-center space-y-4">
-            <div className="w-20 h-20 bg-[#14b8a6] rounded-[24px] flex items-center justify-center mx-auto shadow-[0_20px_40px_rgba(20,184,166,0.3)] transform rotate-3">
-              <span className="text-black font-black text-4xl italic">Ω</span>
-            </div>
-            <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Omega System</h1>
-            <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.3em]">Gestão Operacional de Elite</p>
-          </div>
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            setIsLoading(true);
-            try {
-              const { error } = await (authMode === 'LOGIN' 
-                ? supabase.auth.signInWithPassword({ email, password })
-                : supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } }));
-              if (error) throw error;
-              if (authMode === 'REGISTER') { alert('Conta criada! Faça login.'); setAuthMode('LOGIN'); setIsLoading(false); }
-            } catch (err: any) { alert(err.message); setIsLoading(false); }
-          }} className="bg-[#111]/80 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl space-y-6">
-            <div className="flex bg-black/40 p-1 rounded-2xl mb-4">
-              <button type="button" onClick={() => setAuthMode('LOGIN')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'LOGIN' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Acessar</button>
-              <button type="button" onClick={() => setAuthMode('REGISTER')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'REGISTER' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Novo</button>
-            </div>
-            <div className="space-y-4">
-              {authMode === 'REGISTER' && (
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Nome Completo</label>
-                  <input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
-                </div>
-              )}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">E-mail Corporativo</label>
-                <input required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="usuario@omega.com" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Senha</label>
-                <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
-              </div>
-              <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)] mt-4">
-                {authMode === 'LOGIN' ? 'ENTRAR AGORA' : 'REGISTRAR NO TIME'}
-              </button>
-            </div>
-          </form>
+  if (!isAuthenticated) return (
+    <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-inter">
+      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-[#14b8a6]/10 blur-[150px] rounded-full"></div>
+      <div className="w-full max-w-md relative z-10 space-y-8">
+        <div className="text-center space-y-4">
+          <div className="w-20 h-20 bg-[#14b8a6] rounded-[24px] flex items-center justify-center mx-auto shadow-[0_20px_40px_rgba(20,184,166,0.3)] transform rotate-3"><span className="text-black font-black text-4xl italic">Ω</span></div>
+          <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Omega System</h1>
         </div>
+        <form onSubmit={async (e) => {
+          e.preventDefault(); setIsLoading(true);
+          try {
+            const { error } = await (authMode === 'LOGIN' ? supabase.auth.signInWithPassword({ email, password }) : supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } }));
+            if (error) throw error;
+            if (authMode === 'REGISTER') { alert('Conta criada! Verifique seu e-mail.'); setAuthMode('LOGIN'); setIsLoading(false); }
+          } catch (err: any) { alert(err.message); setIsLoading(false); }
+        }} className="bg-[#111]/80 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl space-y-6">
+          <div className="flex bg-black/40 p-1 rounded-2xl mb-4">
+            <button type="button" onClick={() => setAuthMode('LOGIN')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'LOGIN' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Acessar</button>
+            <button type="button" onClick={() => setAuthMode('REGISTER')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'REGISTER' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Novo</button>
+          </div>
+          <div className="space-y-4">
+            {authMode === 'REGISTER' && <div className="space-y-1"><label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Nome Completo</label><input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" /></div>}
+            <div className="space-y-1"><label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">E-mail</label><input required type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="usuario@omega.com" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" /></div>
+            <div className="space-y-1"><label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Senha</label><input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" /></div>
+            <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)] mt-4">{authMode === 'LOGIN' ? 'ENTRAR AGORA' : 'REGISTRAR NO TIME'}</button>
+          </div>
+        </form>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className={`flex h-screen ${theme === 'dark' ? 'bg-[#0a0a0a] text-gray-300' : 'bg-[#f4f7f6] text-slate-800'} overflow-hidden font-inter transition-colors duration-500 relative`}>
       <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
         <div className={`px-4 py-2 rounded-full border flex items-center gap-2 backdrop-blur-md transition-all ${dbStatus === 'connected' ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-amber-500/10 border-amber-500/20 text-amber-500'}`}>
            {dbStatus === 'connected' ? <Wifi className="w-3 h-3" /> : <RefreshCw className="w-3 h-3 animate-spin" />}
-           <span className="text-[8px] font-black uppercase tracking-[0.2em]">{dbStatus === 'connected' ? 'Cloud Sincronizado' : 'Atualizando Nuvem...'}</span>
+           <span className="text-[8px] font-black uppercase tracking-[0.2em]">{dbStatus === 'connected' ? 'Cloud Ativo' : 'Sincronizando...'}</span>
         </div>
       </div>
-      
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} currentUser={currentUser} onLogout={() => supabase.auth.signOut()} dbStatus={dbStatus} theme={theme} />
       <main className="flex-1 h-full overflow-hidden relative">
         <div className="h-full overflow-y-auto p-12 custom-scrollbar">{renderContent()}</div>
         <div className={`fixed top-[-100px] right-[-100px] w-[700px] h-[700px] ${theme === 'dark' ? 'bg-[#14b8a6]/5' : 'bg-[#14b8a6]/10'} blur-[180px] rounded-full pointer-events-none -z-10`}></div>
       </main>
-
-      {showSetupModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
-          <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl space-y-8 text-center">
-             <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto animate-pulse">
-                <Database className="w-10 h-10 text-red-500" />
-             </div>
-             <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">Conexão Cloud Pendente</h2>
-             <p className="text-gray-400 text-sm leading-relaxed px-4">Aperte o botão verde <b>&quot;RUN&quot;</b> no seu Supabase para ativar os dados compartilhados:</p>
-             <div className="relative group">
-                <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px] border border-white/5 custom-scrollbar">{sqlSetup}</pre>
-                <button onClick={() => {navigator.clipboard.writeText(sqlSetup); alert('Copiado!')}} className="absolute top-4 right-4 bg-white/10 p-2 rounded-lg text-white hover:bg-teal-500 transition-all">
-                  <Clipboard className="w-4 h-4"/>
-                </button>
-             </div>
-             <div className="space-y-4">
-                <p className="text-[10px] text-gray-500 italic">Tutorial: Menu Lateral Supabase &gt; SQL Editor &gt; New Query &gt; Cole o código acima &gt; Run</p>
-                <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase italic hover:scale-105 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.3)]">RECONECTAR SISTEMA</button>
-             </div>
-          </div>
-        </div>
-      )}
+      {showSetupModal && <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6"><div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl space-y-8 text-center"><div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto animate-pulse"><Database className="w-10 h-10 text-red-500" /></div><h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">Conexão Cloud Pendente</h2><button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase italic hover:scale-105 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.3)]">RECONECTAR SISTEMA</button></div></div>}
     </div>
   );
 };

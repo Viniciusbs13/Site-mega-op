@@ -31,12 +31,12 @@ export interface DriveItem {
 
 export interface User {
   id: string;
-  authId?: string; // ID do Supabase Auth
+  authId?: string;
   email?: string;
   name: string;
   role: UserRole;
   isActive: boolean;
-  isApproved: boolean; // Novo: Status de aprovação pelo CEO
+  isApproved: boolean;
   avatar?: string;
   salesCount?: number;
   salesVolume?: number;
@@ -56,7 +56,8 @@ export interface Client {
   industry: string;
   health: ClientHealth | string;
   progress: number;
-  managerId: string;
+  assignedUserIds: string[]; // Alterado para suportar múltiplos colaboradores
+  managerId?: string; // Mantido por compatibilidade legada se necessário
   salesId?: string;
   closingNotes?: string;
   contractValue: number;
@@ -66,10 +67,17 @@ export interface Client {
   isPaused?: boolean;
 }
 
+export interface Squad {
+  id: string;
+  name: string;
+  memberIds: string[];
+  description?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
-  assignedTo: string;
+  assignedTo: string; // Pode ser UserID, SquadID ou 'ALL'
   status: 'PENDING' | 'COMPLETED';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   type: 'ONCE' | 'WEEKLY';
@@ -101,6 +109,7 @@ export interface MonthlyData {
     chatMessages?: ChatMessage[];
     drive?: DriveItem[];
     wiki?: DriveItem[];
+    squads?: Squad[]; // Novo campo para squads
   };
 }
 
