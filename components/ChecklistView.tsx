@@ -1,23 +1,22 @@
 
 import React, { useState } from 'react';
 import { Task, User, DefaultUserRole } from '../types';
-import { MANAGERS } from '../constants';
-import { Plus, Send, Users, Trash2, Lock, CheckCircle2, Circle } from 'lucide-react';
+import { Plus, Trash2, Lock, CheckCircle2, Circle } from 'lucide-react';
 
 interface ChecklistViewProps {
   tasks: Task[];
   currentUser: User;
+  team: User[];
   onAddTask: (task: Partial<Task>) => void;
   onRemoveTask: (id: string) => void;
   onToggleTask: (id: string) => void;
 }
 
-const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAddTask, onRemoveTask, onToggleTask }) => {
+const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, team, onAddTask, onRemoveTask, onToggleTask }) => {
   const [newTitle, setNewTitle] = useState('');
   const isCEO = currentUser.role === DefaultUserRole.CEO;
   
   const [assignee, setAssignee] = useState(isCEO ? 'ALL' : currentUser.id);
-  const [type, setType] = useState<'ONCE' | 'WEEKLY'>('ONCE');
 
   const filteredTasks = isCEO ? tasks : tasks.filter(t => t.assignedTo === currentUser.id || t.assignedTo === 'ALL');
 
@@ -27,7 +26,7 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
     onAddTask({
       title: newTitle,
       assignedTo: isCEO ? assignee : currentUser.id,
-      type: type,
+      type: 'ONCE',
       status: 'PENDING',
       priority: 'MEDIUM',
       createdAt: new Date().toISOString()
@@ -42,7 +41,7 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
         <p className="text-sm text-gray-400">Organize sua rotina de alta performance e marque suas conclusões.</p>
       </header>
 
-      <form onSubmit={handleSubmit} className="bg-[#111] border border-white/10 p-8 rounded-[32px] flex flex-wrap gap-6 items-end">
+      <form onSubmit={handleSubmit} className="bg-[#111] border border-white/10 p-8 rounded-[32px] flex flex-wrap gap-6 items-end shadow-2xl">
         <div className="flex-1 min-w-[300px] space-y-2">
           <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Nova Tarefa / Objetivo</label>
           <input 
@@ -55,15 +54,15 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
         
         {isCEO ? (
           <div className="space-y-2 min-w-[200px]">
-            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Destinatário (ADM)</label>
+            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Destinatário</label>
             <select 
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
               className="w-full bg-[#0a0a0a] border border-white/10 rounded-2xl px-4 py-4 text-sm text-teal-400 font-bold outline-none"
             >
               <option value="ALL">PARA TODA A EQUIPE</option>
-              {MANAGERS.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+              {team.map(m => (
+                <option key={m.id} value={m.id}>{m.name} ({m.role.replace('_', ' ')})</option>
               ))}
             </select>
           </div>
@@ -78,7 +77,7 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
           </div>
         )}
 
-        <button type="submit" className="bg-[#14b8a6] text-black px-10 py-4 rounded-2xl font-black text-sm hover:scale-105 transition-transform flex items-center gap-2 uppercase italic tracking-tighter">
+        <button type="submit" className="bg-[#14b8a6] text-black px-10 py-4 rounded-2xl font-black text-sm hover:scale-105 transition-transform flex items-center gap-2 uppercase italic tracking-tighter shadow-lg shadow-teal-500/20">
           <Plus className="w-4 h-4" /> ADICIONAR
         </button>
       </form>
@@ -93,7 +92,7 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
               <div className="flex-1">
                 <p className={`text-sm font-bold uppercase tracking-tighter transition-all ${task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-white'}`}>{task.title}</p>
                 <div className="flex items-center gap-2 text-[9px] text-gray-500 font-black uppercase tracking-widest mt-1">
-                  <span>{task.type === 'WEEKLY' ? 'Recorrente' : 'Pontual'}</span>
+                  <span>Pontual</span>
                   <span>•</span>
                   <span className="text-teal-500/80">ALVO: {task.assignedTo === 'ALL' ? 'EQUIPE' : 'DIRECIONADO'}</span>
                 </div>
@@ -109,11 +108,6 @@ const ChecklistView: React.FC<ChecklistViewProps> = ({ tasks, currentUser, onAdd
             )}
           </div>
         ))}
-        {filteredTasks.length === 0 && (
-          <div className="col-span-full py-20 text-center opacity-20 italic">
-            Nenhuma tarefa ativa no seu cronograma.
-          </div>
-        )}
       </div>
     </div>
   );

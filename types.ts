@@ -72,13 +72,13 @@ export interface Squad {
   name: string;
   memberIds: string[];
   description?: string;
-  messages?: ChatMessage[]; // Chat específico do Squad
+  messages?: ChatMessage[];
 }
 
 export interface Task {
   id: string;
   title: string;
-  assignedTo: string; // Pode ser UserID, SquadID ou 'ALL'
+  assignedTo: string; 
   status: 'PENDING' | 'COMPLETED';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   type: 'ONCE' | 'WEEKLY';
@@ -118,5 +118,6 @@ export interface AppState {
   team: User[];
   availableRoles: string[];
   db: MonthlyData;
-  notifications?: { [userId: string]: number }; // Contador de notificações não lidas
+  notifications?: { [userId: string]: number };
+  recentSale?: { id: string; sellerName: string; value: number; timestamp: number } | null;
 }
