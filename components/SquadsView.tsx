@@ -1,26 +1,50 @@
 
 import React, { useState } from 'react';
-import { Client, User, DefaultUserRole } from '../types';
-import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck } from 'lucide-react';
+import { Client, User, DefaultUserRole, ClientStatus, ClientHealth } from '../types';
+import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck, Plus, Target, DollarSign, Filter } from 'lucide-react';
 
 interface SquadsViewProps {
   clients: Client[];
   currentUser: User;
   team: User[];
   onAssignUsers: (clientId: string, userIds: string[]) => void;
+  onAddClient: (client: Client) => void;
   onRemoveClient: (clientId: string) => void;
   onTogglePauseClient: (clientId: string) => void;
 }
 
-const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onAssignUsers, onRemoveClient, onTogglePauseClient }) => {
+const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onAssignUsers, onAddClient, onRemoveClient, onTogglePauseClient }) => {
   const [view, setView] = useState<'ACTIVE' | 'PAUSED'>('ACTIVE');
+  const [isAddingClient, setIsAddingClient] = useState(false);
+  const [newClient, setNewClient] = useState({ name: '', industry: '', contractValue: '' });
+  
   const isCEO = currentUser.role === DefaultUserRole.CEO;
-
   const filteredClients = clients.filter(c => view === 'ACTIVE' ? !c.isPaused : c.isPaused);
 
-  // Formata o cargo para exibição amigável
   const formatRole = (role: string) => {
     return role.replace('_', ' ').toLowerCase();
+  };
+
+  const handleAddClientSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClient.name || !newClient.contractValue) return;
+
+    const client: Client = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: newClient.name,
+      industry: newClient.industry || 'Geral',
+      health: ClientHealth.STABLE,
+      progress: 0,
+      assignedUserIds: [],
+      contractValue: parseFloat(newClient.contractValue),
+      statusFlag: 'GREEN' as ClientStatus,
+      folder: {},
+      isPaused: false
+    };
+
+    onAddClient(client);
+    setNewClient({ name: '', industry: '', contractValue: '' });
+    setIsAddingClient(false);
   };
 
   return (
@@ -33,21 +57,62 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
           <p className="text-sm text-gray-400 font-medium">Controle de faturamento e direcionamento de acessos.</p>
         </div>
 
-        <div className="flex bg-[#111] border border-white/5 p-1.5 rounded-2xl">
-          <button 
-            onClick={() => setView('ACTIVE')}
-            className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'ACTIVE' ? 'bg-[#14b8a6] text-black shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Ativos ({clients.filter(c => !c.isPaused).length})
-          </button>
-          <button 
-            onClick={() => setView('PAUSED')}
-            className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'PAUSED' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Pausados ({clients.filter(c => c.isPaused).length})
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="flex bg-[#111] border border-white/5 p-1.5 rounded-2xl">
+            <button 
+              onClick={() => setView('ACTIVE')}
+              className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'ACTIVE' ? 'bg-[#14b8a6] text-black shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Ativos ({clients.filter(c => !c.isPaused).length})
+            </button>
+            <button 
+              onClick={() => setView('PAUSED')}
+              className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'PAUSED' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Pausados ({clients.filter(c => c.isPaused).length})
+            </button>
+          </div>
+
+          {isCEO && (
+            <button 
+              onClick={() => setIsAddingClient(true)}
+              className="bg-[#14b8a6] px-8 py-4 rounded-2xl text-[10px] font-black text-black uppercase hover:scale-105 transition-all flex items-center gap-2 shadow-lg shadow-teal-500/20"
+            >
+              <Plus className="w-4 h-4" /> ADMITIR NOVO CLIENTE
+            </button>
+          )}
         </div>
       </header>
+
+      {/* MODAL ADICIONAR CLIENTE */}
+      {isAddingClient && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-6">
+           <form onSubmit={handleAddClientSubmit} className="w-full max-w-xl bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 shadow-2xl relative">
+              <button type="button" onClick={() => setIsAddingClient(false)} className="absolute right-8 top-8 text-gray-500 hover:text-white"><X /></button>
+              <div className="text-center">
+                <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Novo Contrato Ativo</h3>
+                <p className="text-xs text-gray-500 uppercase tracking-widest mt-2">Registrar cliente na base operacional</p>
+              </div>
+              <div className="space-y-4">
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Nome da Empresa</label>
+                    <input required value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="Ex: Master Store" />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Nicho/Setor</label>
+                        <input value={newClient.industry} onChange={e => setNewClient({...newClient, industry: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="Ex: E-commerce" />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Valor Mensal (R$)</label>
+                        <input required type="number" value={newClient.contractValue} onChange={e => setNewClient({...newClient, contractValue: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="0.00" />
+                    </div>
+                 </div>
+              </div>
+              <button type="submit" className="w-full bg-teal-500 text-black py-5 rounded-3xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20">CONFIRMAR ADMISSÃO</button>
+           </form>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-8">
         {filteredClients.map(client => (
@@ -76,7 +141,7 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
                     {client.isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
                   </button>
                   <button 
-                    onClick={() => onRemoveClient(client.id)} 
+                    onClick={() => { if(confirm('Excluir permanentemente este cliente da base?')) onRemoveClient(client.id); }} 
                     title="Excluir Cliente"
                     className="p-5 bg-red-500/10 text-red-500 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all"
                   >
@@ -86,20 +151,17 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
               )}
             </div>
 
-            {/* SEÇÃO DE DIRECIONAMENTO DE EQUIPE */}
             <div className="bg-black/30 border border-white/5 rounded-[32px] p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-teal-500" /> Direcionamento de Acessos (SQUAD LEAD)
                 </label>
-                <span className="text-[9px] text-gray-700 font-bold uppercase italic">Clique para dar ou remover a pasta do cliente</span>
+                <span className="text-[9px] text-gray-700 font-bold uppercase italic">Controle de visualização das pastas no Drive</span>
               </div>
               
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {team.map(user => {
                   const isAssigned = client.assignedUserIds?.includes(user.id);
-                  const isOwner = user.role === DefaultUserRole.CEO || user.role === DefaultUserRole.SALES;
-                  
                   return (
                     <button 
                       key={user.id}
@@ -130,12 +192,6 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
                   );
                 })}
               </div>
-              
-              {isCEO && (
-                <div className="pt-2">
-                  <p className="text-[9px] text-gray-600 italic">Dica: Os vendedores e o CEO já possuem acesso automático a todas as pastas para fins de acompanhamento de metas.</p>
-                </div>
-              )}
             </div>
           </div>
         ))}
@@ -143,11 +199,11 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
         {filteredClients.length === 0 && (
           <div className="py-48 flex flex-col items-center justify-center text-center space-y-6 opacity-20">
             <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
-               <ShieldAlert className="w-10 h-10" />
+               <Briefcase className="w-10 h-10" />
             </div>
             <div>
               <p className="text-xl font-black uppercase tracking-[0.3em]">Nenhum cliente em {view === 'ACTIVE' ? 'faturamento' : 'pausa'}.</p>
-              <p className="text-xs font-medium uppercase mt-2 italic">Aguardando novos contratos na Arena de Vendas.</p>
+              <p className="text-xs font-medium uppercase mt-2 italic">O CEO pode adicionar clientes ativos usando o botão superior.</p>
             </div>
           </div>
         )}

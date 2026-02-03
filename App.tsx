@@ -14,7 +14,7 @@ import WikiView from './components/WikiView';
 import SettingsView from './components/SettingsView';
 import { dbService, DbResult } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles, Trophy } from 'lucide-react';
+import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles, Trophy, Star, Crown } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -56,11 +56,11 @@ const App: React.FC = () => {
       oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
       oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 1);
       gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 2.5);
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 2);
+      oscillator.stop(audioCtx.currentTime + 3);
     } catch (e) {
       console.warn("Audio Context not supported.");
     }
@@ -69,16 +69,16 @@ const App: React.FC = () => {
   const triggerCelebration = (sellerName: string, value: number) => {
     setGlobalSaleCelebration({ sellerName, value });
     playBellSound();
-    setTimeout(() => setGlobalSaleCelebration(null), 7000);
+    setTimeout(() => setGlobalSaleCelebration(null), 10000);
   };
 
   useEffect(() => {
     const init = async () => {
       const result = await dbService.loadState();
       if (result.state) {
-        setTeam(result.state.team);
-        setAvailableRoles(result.state.availableRoles);
-        setDb(result.state.db);
+        setTeam(result.state.team || []);
+        setAvailableRoles(result.state.availableRoles || Object.values(DefaultUserRole));
+        setDb(result.state.db || {});
         setNotifications(result.state.notifications || {});
         lastIncomingData.current = JSON.stringify(result.state);
         if (result.state.recentSale) {
@@ -96,11 +96,12 @@ const App: React.FC = () => {
       const channel = supabase.channel('omega-master-sync')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'project_state' }, (payload: any) => {
           const newData = payload.new.data as AppState;
+          if (!newData) return;
           const newDataString = JSON.stringify(newData);
           if (newDataString !== lastIncomingData.current) {
             lastIncomingData.current = newDataString;
-            setTeam(newData.team);
-            setDb(newData.db);
+            setTeam(newData.team || []);
+            setDb(newData.db || {});
             setNotifications(newData.notifications || {});
             if (newData.recentSale && newData.recentSale.id !== lastHandledSaleId.current) {
               lastHandledSaleId.current = newData.recentSale.id;
@@ -152,6 +153,7 @@ const App: React.FC = () => {
   const handleRegisterSale = (uid: string, val: number, cname: string) => {
     const seller = team.find(u => u.id === uid);
     const updatedTeam = team.map(u => u.id === uid ? { ...u, salesVolume: (u.salesVolume || 0) + val } : u);
+    const currentData = db[selectedMonth];
     const newClient: Client = { id: Math.random().toString(36).substr(2,9), name: cname, industry: 'Novo Contrato', health: 'Estável', progress: 0, assignedUserIds: [uid], salesId: uid, contractValue: val, statusFlag: 'GREEN', folder: {} };
     const updatedDb = { ...db, [selectedMonth]: { ...currentData, salesGoal: { ...currentData.salesGoal, currentValue: currentData.salesGoal.currentValue + val, totalSales: currentData.salesGoal.totalSales + 1 }, clients: [...currentData.clients, newClient] } };
     const saleId = Date.now().toString();
@@ -164,16 +166,13 @@ const App: React.FC = () => {
 
   const handleSendChatMessage = () => {
     if (!chatInput.trim() || !currentUser) return;
+    const currentData = db[selectedMonth];
     const newMessage: ChatMessage = { id: Date.now().toString(), senderId: currentUser.id, senderName: currentUser.name, text: chatInput, timestamp: new Date().toLocaleTimeString() };
     const updatedDb = { ...db, [selectedMonth]: { ...currentData, chatMessages: [...(currentData.chatMessages || []), newMessage] } };
     setChatInput(''); 
     updateStateAndSync(team, updatedDb, notifications);
   };
 
-  // Dados atuais do mês selecionado
-  const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
-
-  // --- GUARDS DE CARREGAMENTO E AUTENTICAÇÃO ---
   if (isLoading) return <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-6"><div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div><p className="text-[10px] font-black text-teal-500 uppercase tracking-widest animate-pulse">Sincronizando Ômega Cloud...</p></div>;
 
   if (!isAuthenticated || !currentUser) {
@@ -198,7 +197,7 @@ const App: React.FC = () => {
     );
   }
 
-  // Agora é seguro calcular dados dependentes do currentUser
+  const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
   const myClients = currentData.clients.filter(c => currentUser.role === DefaultUserRole.CEO || currentUser.role === DefaultUserRole.SALES || c.assignedUserIds?.includes(currentUser.id));
   const myTasks = currentData.tasks.filter(t => currentUser.role === DefaultUserRole.CEO || t.assignedTo === 'ALL' || t.assignedTo === currentUser.id);
 
@@ -210,7 +209,7 @@ const App: React.FC = () => {
       case 'my-workspace': return <ManagerWorkspace managerId={currentUser.id} clients={myClients} tasks={myTasks} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={items => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, drive: items } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} onUpdateNotes={(id, n) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) } }, notifications)} onUpdateStatusFlag={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) } }, notifications)} onUpdateFolder={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) } }, notifications)} />;
       case 'checklists': return <ChecklistView tasks={myTasks} currentUser={currentUser} team={team} onAddTask={t => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] } }, notifications)} onRemoveTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.filter(t => t.id !== id) } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, tasks: currentData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} />;
       case 'team': return <TeamView team={team} currentUser={currentUser} availableRoles={availableRoles} onUpdateRole={(id, r) => updateStateAndSync(team.map(u => u.id === id ? { ...u, role: r } : u), db, notifications)} onAddMember={(n, r) => updateStateAndSync([...team, { id: Math.random().toString(36).substr(2, 9), name: n, role: r, isActive: true, isApproved: true }], db, notifications)} onRemoveMember={id => updateStateAndSync(team.filter(u => u.id !== id), db, notifications)} onAddRole={r => setAvailableRoles([...availableRoles, r])} onToggleActive={id => updateStateAndSync(team.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u), db, notifications)} />;
-      case 'clients': return <SquadsView clients={currentData.clients} team={team} currentUser={currentUser} onAssignUsers={(cid, uids) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, assignedUserIds: uids } : c) } }, notifications)} onRemoveClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.filter(c => c.id !== cid) } }, notifications)} onTogglePauseClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) } }, notifications)} />;
+      case 'clients': return <SquadsView clients={currentData.clients} team={team} currentUser={currentUser} onAssignUsers={(cid, uids) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, assignedUserIds: uids } : c) } }, notifications)} onAddClient={c => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: [...currentData.clients, c] } }, notifications)} onRemoveClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.filter(c => c.id !== cid) } }, notifications)} onTogglePauseClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentData, clients: currentData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) } }, notifications)} />;
       case 'chat': return (
         <div className="max-w-4xl mx-auto h-full flex flex-col pb-6">
           <header className="mb-6 px-4 flex items-center justify-between">
@@ -240,32 +239,54 @@ const App: React.FC = () => {
     <div className={`flex h-screen overflow-hidden font-inter transition-colors duration-500 relative ${theme === 'dark' ? 'bg-[#0a0a0a] text-gray-300' : 'bg-[#f4f7f6] text-slate-800'}`}>
       
       {globalSaleCelebration && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/98 backdrop-blur-3xl animate-in fade-in zoom-in duration-500">
-          <div className="text-center space-y-10 p-20 bg-white/[0.01] rounded-[100px] border border-white/10 shadow-[0_0_200px_rgba(20,184,166,0.5)] relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-b from-teal-500/10 to-transparent"></div>
-            <div className="relative z-10 space-y-10">
-              <div className="relative">
-                <div className="absolute inset-0 blur-[80px] bg-teal-500/30 rounded-full"></div>
-                <Bell className="w-64 h-64 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_50px_rgba(20,184,166,1)]" />
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/98 backdrop-blur-3xl animate-in fade-in zoom-in duration-700">
+          <div className="text-center space-y-12 p-24 bg-white/[0.01] rounded-[120px] border border-white/10 shadow-[0_0_250px_rgba(20,184,166,0.6)] relative overflow-hidden max-w-5xl w-full">
+            <div className="absolute inset-0 bg-gradient-to-b from-teal-500/20 to-transparent"></div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-teal-500 to-transparent animate-pulse"></div>
+            
+            <div className="relative z-10 space-y-12">
+              <div className="relative inline-block">
+                <div className="absolute inset-0 blur-[100px] bg-teal-500/40 rounded-full animate-pulse"></div>
+                <Bell className="w-72 h-72 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_80px_rgba(20,184,166,1)]" />
+                <Crown className="absolute -top-4 -right-4 w-20 h-20 text-amber-400 animate-bounce" />
               </div>
-              <div className="space-y-6">
-                <div className="flex items-center justify-center gap-6">
-                  <Sparkles className="w-10 h-10 text-teal-400 animate-pulse" />
-                  <h2 className="text-8xl font-black text-white uppercase italic tracking-tighter">VENDA FECHADA!</h2>
-                  <Sparkles className="w-10 h-10 text-teal-400 animate-pulse" />
+              
+              <div className="space-y-8">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="flex items-center gap-6">
+                    <Star className="w-12 h-12 text-teal-400 animate-spin" />
+                    <h2 className="text-9xl font-black text-white uppercase italic tracking-tighter leading-none shadow-teal-500/50 drop-shadow-2xl">
+                      HIT! <span className="text-teal-500">SALE</span>
+                    </h2>
+                    <Star className="w-12 h-12 text-teal-400 animate-spin" />
+                  </div>
+                  <div className="h-0.5 w-64 bg-gradient-to-r from-transparent via-teal-500 to-transparent"></div>
                 </div>
-                <p className="text-5xl font-black text-teal-400 uppercase tracking-[0.3em] italic">{globalSaleCelebration.sellerName}</p>
-                <div className="bg-black/60 px-16 py-8 rounded-[50px] border border-white/10 inline-block shadow-2xl">
-                  <p className="text-8xl font-black text-white flex items-center gap-4">
-                    <span className="text-4xl text-teal-500">R$</span> {globalSaleCelebration.value.toLocaleString()}
+
+                <div className="space-y-4">
+                  <p className="text-6xl font-black text-white uppercase tracking-widest italic">{globalSaleCelebration.sellerName}</p>
+                  <p className="text-xs font-black text-teal-500 uppercase tracking-[1em] opacity-60">Operação de Sucesso Detectada</p>
+                </div>
+
+                <div className="bg-black/80 px-24 py-12 rounded-[60px] border border-white/10 inline-block shadow-[0_30px_60px_rgba(0,0,0,0.5)] transform hover:scale-105 transition-transform">
+                  <p className="text-9xl font-black text-white flex items-center gap-6">
+                    <span className="text-5xl text-teal-500 font-black italic">R$</span> {globalSaleCelebration.value.toLocaleString()}
                   </p>
                 </div>
               </div>
-              <div className="flex justify-center gap-3">
-                 {[1,2,3,4,5].map(i => <Trophy key={i} className="w-8 h-8 text-teal-500/30 animate-bounce" style={{animationDelay: `${i * 0.2}s`}} />)}
+
+              <div className="flex justify-center gap-6">
+                 {[1,2,3,4,5,6,7].map(i => <Trophy key={i} className="w-10 h-10 text-teal-500/40 animate-bounce" style={{animationDelay: `${i * 0.15}s`}} />)}
               </div>
-              <button onClick={() => setGlobalSaleCelebration(null)} className="text-[10px] font-black text-gray-700 uppercase tracking-widest hover:text-white transition-colors border border-white/5 px-6 py-2 rounded-full">Fechar Painel</button>
+              <button onClick={() => setGlobalSaleCelebration(null)} className="text-[12px] font-black text-gray-700 uppercase tracking-widest hover:text-white transition-colors border border-white/10 px-12 py-4 rounded-full bg-white/5 hover:bg-white/10">Ocupar Posto de Comando</button>
             </div>
+          </div>
+          
+          {/* Background Sparks (Visual Only) */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+             {Array.from({length: 20}).map((_, i) => (
+               <div key={i} className="absolute bg-teal-500/20 w-1 h-1 rounded-full animate-ping" style={{top: `${Math.random() * 100}%`, left: `${Math.random() * 100}%`, animationDuration: `${2 + Math.random() * 4}s`}}></div>
+             ))}
           </div>
         </div>
       )}
