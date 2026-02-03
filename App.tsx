@@ -12,7 +12,7 @@ import SalesView from './components/SalesView';
 import WikiView from './components/WikiView'; 
 import { dbService } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, LogIn, ShieldCheck, UserCircle, LogOut, Lock, RefreshCw, AlertCircle, Copy, Check, Database, ShieldAlert, ShieldCheck as ShieldIcon, KeyRound, UserPlus, Mail, Fingerprint } from 'lucide-react';
+import { Hash, LogIn, ShieldCheck, UserCircle, LogOut, Lock, RefreshCw, AlertCircle, Copy, Check, Database, ShieldAlert, ShieldCheck as ShieldIcon, KeyRound, UserPlus, Mail, Fingerprint, ChevronRight } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -29,10 +29,8 @@ const App: React.FC = () => {
   
   const [dbStatus, setDbStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [showSetupModal, setShowSetupModal] = useState(false);
-  const [copied, setCopied] = useState(false);
   
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedMonth, setSelectedMonth] = useState(monthKey);
   const [chatInput, setChatInput] = useState('');
@@ -53,39 +51,44 @@ const App: React.FC = () => {
     }
   });
 
-  const sqlSetup = `-- 1. TABELA ATÔMICA
+  const sqlSetup = `-- 1. TABELA DE ESTADO
 CREATE TABLE IF NOT EXISTS project_state (
   id TEXT PRIMARY KEY,
   data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. ATIVAR BLINDAGEM RLS
+-- 2. HABILITAR SEGURANÇA
 ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 
--- 3. POLÍTICAS RLS
-DROP POLICY IF EXISTS "Acesso Público" ON project_state;
-CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
+-- 3. POLÍTICAS ACESSO ANÔNIMO (PARA MVP)
+DROP POLICY IF EXISTS "Acesso Total" ON project_state;
+CREATE POLICY "Acesso Total" ON project_state FOR ALL TO anon USING (true) WITH CHECK (true);`;
 
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
       
-      // Carregar estado global
+      // 1. Carregar dados globais do banco
       const result = await dbService.loadState();
-      if (result.error === 'TABLE_NOT_FOUND') setShowSetupModal(true);
-      if (result.state) {
+      let currentTeam = team;
+
+      if (result.error === 'TABLE_NOT_FOUND') {
+        setShowSetupModal(true);
+      } else if (result.state) {
         setTeam(result.state.team);
         setAvailableRoles(result.state.availableRoles);
         setDb(result.state.db);
+        currentTeam = result.state.team;
       }
 
-      // Verificar sessão Supabase
+      // 2. Verificar se há sessão ativa no Supabase
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user && result.state) {
-        const userInTeam = result.state.team.find(u => u.authId === session.user.id);
-        if (userInTeam) {
-          setCurrentUser(userInTeam);
+      
+      if (session?.user) {
+        const userMatch = currentTeam.find(u => u.authId === session.user.id || u.email === session.user.email);
+        if (userMatch) {
+          setCurrentUser(userMatch);
           setIsAuthenticated(true);
         }
       }
@@ -94,13 +97,12 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     };
     init();
 
-    // Listener de Auth
+    // Listener para mudanças de estado de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        // Recarregar para garantir que pegamos o time atualizado
         const res = await dbService.loadState();
         if (res.state) {
-          const user = res.state.team.find(u => u.authId === session.user.id);
+          const user = res.state.team.find(u => u.authId === session.user.id || u.email === session.user.email);
           if (user) {
             setCurrentUser(user);
             setIsAuthenticated(true);
@@ -115,6 +117,7 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     return () => subscription.unsubscribe();
   }, []);
 
+  // Sincronização Automática
   useEffect(() => {
     if (!isLoading && !showSetupModal && isAuthenticated) {
       const sync = async () => {
@@ -130,10 +133,18 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password.length < 6) return alert('A senha deve ter pelo menos 6 caracteres.');
+    
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: { data: { full_name: fullName } }
+      });
+      
       if (error) throw error;
+      
       if (data.user) {
         const newUser: User = {
           id: Math.random().toString(36).substr(2, 9),
@@ -144,15 +155,18 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
           isActive: false,
           isApproved: false
         };
-        // Atualizar estado local do time e sincronizar imediatamente
-        const newTeam = [...team, newUser];
-        setTeam(newTeam);
-        await dbService.saveState({ team: newTeam, availableRoles, db });
-        alert('Cadastro realizado! Aguarde a aprovação de um administrador para acessar o sistema.');
+
+        const updatedTeam = [...team, newUser];
+        setTeam(updatedTeam);
+        
+        // Salva imediatamente no banco para o ADM ver
+        await dbService.saveState({ team: updatedTeam, availableRoles, db });
+        
+        alert('Solicitação enviada! O CEO revisará seu cadastro.');
         setAuthMode('LOGIN');
       }
     } catch (err: any) {
-      alert(err.message);
+      alert('Erro no cadastro: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -164,8 +178,9 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      // O useEffect listener cuidará do redirecionamento
     } catch (err: any) {
-      alert(err.message);
+      alert('Falha no login: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -175,6 +190,7 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     await supabase.auth.signOut();
     setIsAuthenticated(false);
     setCurrentUser(null);
+    localStorage.removeItem('omega_session_user');
   };
 
   const currentData = db[selectedMonth] || { 
@@ -186,40 +202,48 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     setDb(prev => ({ ...prev, [selectedMonth]: { ...currentData, ...updates } }));
   };
 
+  const handleDriveUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ drive: newItems });
+  const handleWikiUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ wiki: newItems });
+
   if (isLoading) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
+        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Carregando Protocolos...</p>
       </div>
     );
   }
 
-  // Tela de Autenticação Reestruturada
+  // TELA DE LOGIN / CADASTRO
   if (!isAuthenticated) {
     return (
-      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#14b8a6]/10 blur-[120px] rounded-full"></div>
+      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden font-inter">
+        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-[#14b8a6]/10 blur-[150px] rounded-full"></div>
         
-        <form onSubmit={authMode === 'LOGIN' ? handleLogin : handleRegister} className="bg-[#111] border border-white/5 p-10 rounded-[48px] max-w-md w-full shadow-2xl space-y-6 relative z-10 animate-in fade-in zoom-in duration-500">
-           <div className="text-center space-y-2">
-              <div className="w-14 h-14 bg-[#14b8a6] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_10px_30px_rgba(20,184,166,0.3)]">
-                <span className="text-black font-black text-2xl">Ω</span>
-              </div>
-              <h1 className="text-2xl font-black text-white italic uppercase tracking-tighter">
-                {authMode === 'LOGIN' ? 'Portal de Acesso' : 'Solicitar Cadastro'}
-              </h1>
-           </div>
+        <div className="w-full max-w-md relative z-10 space-y-8">
+          <div className="text-center space-y-4">
+            <div className="w-20 h-20 bg-[#14b8a6] rounded-[24px] flex items-center justify-center mx-auto shadow-[0_20px_40px_rgba(20,184,166,0.3)] transform rotate-3">
+              <span className="text-black font-black text-4xl">Ω</span>
+            </div>
+            <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Omega System</h1>
+            <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.3em]">Ambiente de Alta Performance</p>
+          </div>
 
-           <div className="space-y-4">
+          <form onSubmit={authMode === 'LOGIN' ? handleLogin : handleRegister} className="bg-[#111]/80 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl space-y-6">
+            <div className="flex bg-black/40 p-1 rounded-2xl mb-4">
+              <button type="button" onClick={() => setAuthMode('LOGIN')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'LOGIN' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Login</button>
+              <button type="button" onClick={() => setAuthMode('REGISTER')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${authMode === 'REGISTER' ? 'bg-[#14b8a6] text-black' : 'text-gray-500'}`}>Cadastro</button>
+            </div>
+
+            <div className="space-y-4">
               {authMode === 'REGISTER' && (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><UserCircle className="w-3 h-3" /> Nome Completo</label>
-                    <input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Nome Completo</label>
+                    <input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><ShieldIcon className="w-3 h-3" /> Função Desejada</label>
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Função Solicitada</label>
                     <select value={requestedRole} onChange={e => setRequestedRole(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none">
                       {availableRoles.filter(r => r !== 'CEO').map(r => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
                     </select>
@@ -228,50 +252,58 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
               )}
 
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><Mail className="w-3 h-3" /> E-mail Profissional</label>
-                <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">E-mail Profissional</label>
+                <div className="relative">
+                  <Mail className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                  <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
+                </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><Lock className="w-3 h-3" /> Senha</label>
-                <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2">Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
+                  <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-12 py-4 text-white text-sm outline-none focus:border-[#14b8a6] transition-all" />
+                </div>
               </div>
 
-              <button type="submit" className="w-full bg-[#14b8a6] text-black py-4 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20">
-                {authMode === 'LOGIN' ? 'ENTRAR NO SISTEMA' : 'SOLICITAR ADMISSÃO'}
+              <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)] flex items-center justify-center gap-3 mt-4">
+                {authMode === 'LOGIN' ? 'ACESSAR AGORA' : 'SOLICITAR ADMISSÃO'}
+                <ChevronRight className="w-5 h-5" />
               </button>
-           </div>
-
-           <div className="text-center">
-             <button type="button" onClick={() => setAuthMode(authMode === 'LOGIN' ? 'REGISTER' : 'LOGIN')} className="text-[10px] font-bold text-gray-500 hover:text-teal-500 uppercase tracking-widest">
-               {authMode === 'LOGIN' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça Login'}
-             </button>
-           </div>
-        </form>
+            </div>
+          </form>
+        </div>
       </div>
     );
   }
 
-  // Tela de Bloqueio (Não aprovado)
+  // TELA DE ESPERA (LOGADO MAS NÃO APROVADO)
   if (currentUser && !currentUser.isApproved) {
     return (
-      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 text-center">
-         <div className="max-w-md space-y-6">
-            <Fingerprint className="w-20 h-20 text-teal-500 mx-auto animate-pulse" />
-            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Acesso Pendente</h2>
-            <p className="text-gray-500 text-sm leading-relaxed">
-              Olá, <span className="text-white">{currentUser.name}</span>. Sua solicitação para a função de <span className="text-teal-500">{currentUser.role.replace('_', ' ')}</span> foi registrada com sucesso.
-              <br /><br />
-              A diretoria precisa aprovar seu perfil antes que você possa visualizar os dados da empresa.
-            </p>
-            <button onClick={handleLogout} className="text-xs font-black text-red-500 uppercase tracking-widest flex items-center gap-2 mx-auto hover:text-red-400">
-               <LogOut className="w-4 h-4" /> Cancelar e Sair
-            </button>
+      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 text-center font-inter">
+         <div className="max-w-md space-y-8 animate-in zoom-in duration-500">
+            <div className="relative mx-auto w-32 h-32">
+               <Fingerprint className="w-full h-full text-teal-500 animate-pulse" />
+               <div className="absolute inset-0 border-4 border-teal-500/20 rounded-full animate-ping"></div>
+            </div>
+            <div className="space-y-4">
+               <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter">Verificação em Curso</h2>
+               <p className="text-gray-500 text-sm leading-relaxed px-6">
+                 Olá, <span className="text-white font-bold">{currentUser.name}</span>. Sua identidade foi autenticada via Supabase, mas seu acesso ao painel de <span className="text-teal-500 font-bold">{currentUser.role.replace('_', ' ')}</span> ainda depende da validação da Diretoria Ômega.
+               </p>
+            </div>
+            <div className="pt-8">
+               <button onClick={handleLogout} className="group text-xs font-black text-red-500 uppercase tracking-[0.2em] flex items-center gap-3 mx-auto hover:text-red-400 transition-colors">
+                  <LogOut className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> CANCELAR SOLICITAÇÃO E SAIR
+               </button>
+            </div>
          </div>
       </div>
     );
   }
 
+  // APP PRINCIPAL
   const renderContent = () => {
     if (!currentUser) return null;
     switch (activeTab) {
@@ -341,12 +373,9 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
     }
   };
 
-  const handleDriveUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ drive: newItems });
-  const handleWikiUpdate = (newItems: DriveItem[]) => updateCurrentMonthData({ wiki: newItems });
-
   return (
     <div className="flex h-screen bg-[#0a0a0a] text-gray-300 overflow-hidden font-inter relative">
-      {currentUser && (
+      {currentUser && currentUser.isApproved && (
         <Sidebar 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
@@ -364,10 +393,10 @@ CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
           <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8 text-center">
              <ShieldIcon className="w-16 h-16 text-teal-500 mx-auto" />
-             <h2 className="text-2xl font-black text-white uppercase italic">Sincronização Inicial</h2>
-             <p className="text-gray-500 text-sm leading-relaxed">Execute o script SQL no Supabase para inicializar o cluster de dados.</p>
+             <h2 className="text-2xl font-black text-white uppercase italic">Setup de Banco Necessário</h2>
+             <p className="text-gray-500 text-sm leading-relaxed">Sua tabela Supabase não foi encontrada. Copie e execute o script abaixo no SQL Editor do Supabase:</p>
              <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px]">{sqlSetup}</pre>
-             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">RECARREGAR</button>
+             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">Sincronizar Agora</button>
           </div>
         </div>
       )}
