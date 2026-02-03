@@ -15,11 +15,10 @@ export interface DbResult {
 
 export const dbService = {
   saveState: async (state: AppState): Promise<{ success: boolean; error?: any }> => {
-    // 1. Backup Local imediato
+    // Backup local apenas para contingência extrema
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
-    // 2. Cloud Sync
-    if (!supabase) return { success: false, error: 'Supabase não configurado' };
+    if (!supabase) return { success: false, error: 'Supabase não inicializado' };
     
     try {
       const { error } = await supabase
@@ -31,7 +30,7 @@ export const dbService = {
         }, { onConflict: 'id' });
       
       if (error) {
-        console.error('Erro ao salvar na nuvem:', error);
+        console.error('Erro de Sincronização Cloud:', error);
         return { success: false, error };
       }
       return { success: true };
@@ -41,10 +40,7 @@ export const dbService = {
   },
 
   loadState: async (): Promise<DbResult> => {
-    const localData = localStorage.getItem(STORAGE_KEY);
-    const fallbackState = localData ? JSON.parse(localData) : null;
-
-    if (!supabase) return { state: fallbackState, error: 'Supabase Offline' };
+    if (!supabase) return { state: null, error: 'Supabase Offline' };
 
     try {
       const { data, error } = await supabase
@@ -54,24 +50,19 @@ export const dbService = {
         .maybeSingle();
 
       if (error) {
-        // Erro 42P01 significa que a tabela não existe no banco
         if (error.code === '42P01') {
-          return { state: fallbackState, error: 'TABLE_NOT_FOUND', code: error.code, details: 'A tabela project_state não existe no seu Supabase.' };
+          return { state: null, error: 'TABLE_NOT_FOUND', details: 'A tabela project_state não existe no banco de dados.' };
         }
-        // Erro 42501 significa que o RLS está bloqueando o acesso
-        if (error.code === '42501') {
-          return { state: fallbackState, error: 'RLS_ERROR', code: error.code, details: 'As políticas de segurança (RLS) estão bloqueando o acesso.' };
-        }
-        return { state: fallbackState, error: error.message };
+        return { state: null, error: error.message };
       }
 
       if (data && data.data) {
         return { state: data.data as AppState };
       }
     } catch (e: any) {
-      return { state: fallbackState, error: e.message };
+      return { state: null, error: e.message };
     }
 
-    return { state: fallbackState };
+    return { state: null };
   }
 };
