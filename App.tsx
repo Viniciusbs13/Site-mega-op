@@ -14,7 +14,7 @@ import WikiView from './components/WikiView';
 import SettingsView from './components/SettingsView';
 import { dbService, DbResult } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send } from 'lucide-react';
+import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -47,9 +47,10 @@ const App: React.FC = () => {
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recentSaleHandled = useRef<string | null>(null);
 
-  // Sincronização em Tempo Real (Realtime)
+  // Efeito de Realtime - Escuta o banco de dados e atualiza a tela de todos
   useEffect(() => {
     const init = async () => {
+      // 1. Carrega dados iniciais
       const result = await dbService.loadState();
       if (result.state) {
         setTeam(result.state.team);
@@ -59,6 +60,7 @@ const App: React.FC = () => {
         lastIncomingData.current = JSON.stringify(result.state);
       }
 
+      // 2. Verifica Autenticação
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         handleAuth(session, result.state?.team || []);
@@ -66,23 +68,27 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
 
-      // Canal de Escuta: Qualquer mudança no banco de dados reflete aqui instantaneamente
-      const channel = supabase.channel('omega-realtime')
+      // 3. Inscreve no Canal Master do Supabase (Elimina F5)
+      const channel = supabase.channel('omega-master-sync')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'project_state' }, (payload: any) => {
           const newData = payload.new.data as AppState;
           const newDataString = JSON.stringify(newData);
 
-          // Só atualiza se for uma mudança vinda de outro usuário
+          // Se a mudança veio de outro usuário, aplica na tela agora
           if (newDataString !== lastIncomingData.current) {
             lastIncomingData.current = newDataString;
             setTeam(newData.team);
             setDb(newData.db);
             setNotifications(newData.notifications || {});
             
-            // Verifica se há uma nova venda para celebrar
+            // CELEBRAÇÃO DE VENDA: Se o ID da venda recente mudou, mostre para todos
             if (newData.recentSale && newData.recentSale.id !== recentSaleHandled.current) {
               recentSaleHandled.current = newData.recentSale.id;
-              setGlobalSaleCelebration({ sellerName: newData.recentSale.sellerName, value: newData.recentSale.value });
+              setGlobalSaleCelebration({ 
+                sellerName: newData.recentSale.sellerName, 
+                value: newData.recentSale.value 
+              });
+              // Fecha o alerta após 6 segundos automaticamente
               setTimeout(() => setGlobalSaleCelebration(null), 6000);
             }
           }
@@ -109,6 +115,12 @@ const App: React.FC = () => {
       };
       const updatedTeam = [...currentTeam, userMatch];
       setTeam(updatedTeam);
+      await forceCloudSync(updatedTeam, db, notifications);
+    } else if (!userMatch.authId) {
+      // Sincroniza o ID fixo se o usuário já existia mas não tinha authId
+      const updatedTeam = currentTeam.map(u => u.id === userMatch!.id ? { ...u, authId: session.user.id } : u);
+      setTeam(updatedTeam);
+      userMatch = { ...userMatch, authId: session.user.id };
       await forceCloudSync(updatedTeam, db, notifications);
     }
 
@@ -137,11 +149,18 @@ const App: React.FC = () => {
     setDb(newDb);
     setNotifications(newNotifs);
     
-    // Debounce para não sobrecarregar o banco em edições rápidas (exceto chat que é imediato)
+    // Se for venda ou chat, salva na hora. Se for edição de texto, aguarda 500ms
+    const isInstant = newSale !== null || newDb[selectedMonth].chatMessages?.length !== db[selectedMonth]?.chatMessages?.length;
+    
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => {
+    
+    if (isInstant) {
       forceCloudSync(newTeam, newDb, newNotifs, newSale);
-    }, 500);
+    } else {
+      syncTimeoutRef.current = setTimeout(() => {
+        forceCloudSync(newTeam, newDb, newNotifs, newSale);
+      }, 500);
+    }
   };
 
   const handleSendChatMessage = () => {
@@ -163,10 +182,49 @@ const App: React.FC = () => {
       }
     };
 
-    setChatInput(''); // Limpa o campo na hora
+    setChatInput(''); 
     updateStateAndSync(team, updatedDb, notifications);
-    // Para chat, forçamos a sincronização imediata sem debounce longo
-    forceCloudSync(team, updatedDb, notifications);
+  };
+
+  const handleRegisterSale = (uid: string, val: number, cname: string) => {
+    const seller = team.find(u => u.id === uid);
+    const updatedTeam = team.map(u => u.id === uid ? { ...u, salesVolume: (u.salesVolume || 0) + val } : u);
+    
+    const newClient: Client = { 
+      id: Math.random().toString(36).substr(2,9), 
+      name: cname, 
+      industry: 'Novo Contrato', 
+      health: 'Estável', 
+      progress: 0, 
+      assignedUserIds: [uid], 
+      salesId: uid, 
+      contractValue: val, 
+      statusFlag: 'GREEN', 
+      folder: {} 
+    };
+
+    const updatedDb = { 
+      ...db, 
+      [selectedMonth]: { 
+        ...currentData, 
+        salesGoal: { 
+          ...currentData.salesGoal, 
+          currentValue: currentData.salesGoal.currentValue + val, 
+          totalSales: currentData.salesGoal.totalSales + 1 
+        }, 
+        clients: [...currentData.clients, newClient] 
+      } 
+    };
+
+    // Sinal de celebração para todos os usuários
+    const saleSignal = { 
+      id: Date.now().toString(), 
+      sellerName: seller?.name || currentUser?.name || 'Vendedor', 
+      value: val, 
+      timestamp: Date.now() 
+    };
+
+    updateStateAndSync(updatedTeam, updatedDb, notifications, saleSignal);
   };
 
   const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
@@ -195,16 +253,6 @@ const App: React.FC = () => {
 
   const myClients = currentData.clients.filter(c => currentUser.role === DefaultUserRole.CEO || currentUser.role === DefaultUserRole.SALES || c.assignedUserIds?.includes(currentUser.id));
   const myTasks = currentData.tasks.filter(t => currentUser.role === DefaultUserRole.CEO || t.assignedTo === 'ALL' || t.assignedTo === currentUser.id);
-
-  const handleRegisterSale = (uid: string, val: number, cname: string) => {
-    const updatedTeam = team.map(u => u.id === uid ? { ...u, salesVolume: (u.salesVolume || 0) + val } : u);
-    const newClient: Client = { 
-      id: Math.random().toString(36).substr(2,9), name: cname, industry: 'Novo Contrato', health: 'Estável', progress: 0, assignedUserIds: [uid], salesId: uid, contractValue: val, statusFlag: 'GREEN', folder: {} 
-    };
-    const updatedDb = { ...db, [selectedMonth]: { ...currentData, salesGoal: { ...currentData.salesGoal, currentValue: currentData.salesGoal.currentValue + val, totalSales: currentData.salesGoal.totalSales + 1 }, clients: [...currentData.clients, newClient] } };
-    const saleSignal = { id: Date.now().toString(), sellerName: currentUser.name, value: val, timestamp: Date.now() };
-    updateStateAndSync(updatedTeam, updatedDb, notifications, saleSignal);
-  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -253,14 +301,39 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen overflow-hidden font-inter transition-colors duration-500 relative ${theme === 'dark' ? 'bg-[#0a0a0a] text-gray-300' : 'bg-[#f4f7f6] text-slate-800'}`}>
+      
+      {/* TELA DE CELEBRAÇÃO DE VENDA (FLASH) */}
       {globalSaleCelebration && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-2xl animate-in zoom-in duration-300">
-          <div className="text-center space-y-8 p-16 bg-white/[0.02] rounded-[64px] border border-white/5 shadow-[0_0_100px_rgba(20,184,166,0.3)]">
-            <Bell className="w-48 h-48 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_50px_rgba(20,184,166,0.8)]" />
-            <div className="space-y-2">
-              <h2 className="text-6xl font-black text-white uppercase italic tracking-tighter">VENDA REGISTRADA!</h2>
-              <p className="text-3xl font-bold text-teal-400 uppercase">{globalSaleCelebration.sellerName}</p>
-              <p className="text-5xl font-black text-white">R$ {globalSaleCelebration.value.toLocaleString()}</p>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in zoom-in duration-500">
+          <div className="text-center space-y-8 p-16 bg-white/[0.02] rounded-[80px] border border-white/10 shadow-[0_0_150px_rgba(20,184,166,0.4)] relative">
+            <div className="absolute inset-0 bg-gradient-to-b from-teal-500/10 to-transparent rounded-[80px]"></div>
+            
+            <div className="relative z-10 space-y-10">
+              <div className="relative">
+                <div className="absolute inset-0 blur-[50px] bg-teal-500/20 rounded-full"></div>
+                <Bell className="w-56 h-56 text-teal-400 animate-bell mx-auto drop-shadow-[0_0_30px_rgba(20,184,166,0.8)]" />
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center justify-center gap-4 text-teal-500">
+                  <Sparkles className="w-8 h-8 animate-pulse" />
+                  <h2 className="text-7xl font-black text-white uppercase italic tracking-tighter">VENDA REGISTRADA!</h2>
+                  <Sparkles className="w-8 h-8 animate-pulse" />
+                </div>
+                
+                <p className="text-4xl font-bold text-teal-400 uppercase tracking-[0.2em]">{globalSaleCelebration.sellerName}</p>
+                
+                <div className="bg-black/40 px-12 py-6 rounded-[40px] border border-white/5 inline-block">
+                  <p className="text-7xl font-black text-white">R$ {globalSaleCelebration.value.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setGlobalSaleCelebration(null)}
+                className="text-[10px] font-black text-gray-600 uppercase tracking-widest hover:text-white transition-colors"
+              >
+                Clique para fechar
+              </button>
             </div>
           </div>
         </div>
