@@ -1,0 +1,8 @@
+{
+  "name": "Copy of ÔMEGA TRABALHO",
+  "description": "Enterprise-grade organization tool with Role-Based Access Control (RBAC), Sector-specific views, and recurring Chronograms/Checklists for high-performance teams.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
