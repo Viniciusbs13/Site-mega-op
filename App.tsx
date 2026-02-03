@@ -14,7 +14,7 @@ import WikiView from './components/WikiView';
 import SettingsView from './components/SettingsView';
 import { dbService, DbResult } from './services/database';
 import { supabase } from './supabaseClient';
-import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles, Trophy, Star, Crown, Zap, Rocket } from 'lucide-react';
+import { Hash, Bell, Database, WifiOff, Settings, LogOut, Send, Sparkles, Trophy, Star, Crown, Zap, Rocket, UserPlus, Key } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [dbStatus, setDbStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [chatInput, setChatInput] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   
   const [team, setTeam] = useState<User[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>(Object.values(DefaultUserRole));
@@ -76,12 +77,12 @@ const App: React.FC = () => {
     try {
       await supabase.auth.signOut();
     } catch (error) {
-      console.error("Erro ao sair do Supabase:", error);
+      console.error("Erro ao sair:", error);
     } finally {
       setIsAuthenticated(false);
       setCurrentUser(null);
       localStorage.clear();
-      window.location.href = window.location.origin;
+      window.location.reload();
     }
   };
 
@@ -217,21 +218,73 @@ const App: React.FC = () => {
         <div className="w-full max-w-md space-y-8 text-center">
           <div className="w-24 h-24 bg-[#14b8a6] rounded-[40px] flex items-center justify-center mx-auto shadow-[0_20px_60px_rgba(20,184,166,0.4)] rotate-3 border-4 border-white/10"><span className="text-black font-black text-5xl italic">Ω</span></div>
           <div className="space-y-2">
-            <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Protocolo de Comando</h1>
-            <p className="text-xs text-gray-500 font-bold uppercase tracking-[0.3em]">Módulo de Acesso Restrito</p>
+            <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">
+              {authMode === 'login' ? 'Protocolo de Comando' : 'Protocolo de Recrutamento'}
+            </h1>
+            <p className="text-xs text-gray-500 font-bold uppercase tracking-[0.3em]">
+              {authMode === 'login' ? 'Módulo de Acesso Restrito' : 'Inscrição de Novo Colaborador'}
+            </p>
           </div>
+
           <div className="bg-[#111] border border-white/5 p-10 rounded-[48px] space-y-5 shadow-2xl relative overflow-hidden group">
              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-teal-500 to-transparent"></div>
-             <input type="email" placeholder="E-mail de Cadastro" id="auth_email" className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all font-bold" />
-             <input type="password" placeholder="Sua Chave Mestra" id="auth_pass" className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all font-bold" />
+             
+             {authMode === 'register' && (
+               <div className="space-y-1 text-left">
+                  <label className="text-[9px] font-black text-gray-600 uppercase ml-4 tracking-widest">Nome Completo</label>
+                  <input type="text" placeholder="Ex: Lucas Silva" id="auth_name" className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all font-bold" />
+               </div>
+             )}
+
+             <div className="space-y-1 text-left">
+                <label className="text-[9px] font-black text-gray-600 uppercase ml-4 tracking-widest">E-mail Corporativo</label>
+                <input type="email" placeholder="nome@omega.com" id="auth_email" className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all font-bold" />
+             </div>
+
+             <div className="space-y-1 text-left">
+                <label className="text-[9px] font-black text-gray-600 uppercase ml-4 tracking-widest">Sua Chave Mestra</label>
+                <input type="password" placeholder="••••••••" id="auth_pass" className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500 transition-all font-bold" />
+             </div>
+
              <button onClick={async () => {
                 const em = (document.getElementById('auth_email') as HTMLInputElement).value;
                 const ps = (document.getElementById('auth_pass') as HTMLInputElement).value;
-                const { error } = await supabase.auth.signInWithPassword({ email: em, password: ps });
-                if (error) alert("Credenciais Inválidas");
-                else window.location.reload();
-             }} className="w-full bg-teal-500 text-black py-5 rounded-2xl font-black uppercase hover:scale-105 active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)]">Entrar na Operação</button>
-             <p className="text-[9px] text-gray-700 font-black uppercase tracking-widest text-center pt-4">Omega Group © 2025</p>
+                
+                if (authMode === 'login') {
+                  const { error } = await supabase.auth.signInWithPassword({ email: em, password: ps });
+                  if (error) alert("Acesso Negado: Credenciais Inválidas");
+                  else window.location.reload();
+                } else {
+                  const nm = (document.getElementById('auth_name') as HTMLInputElement).value;
+                  if (!nm) { alert("Nome é obrigatório!"); return; }
+                  const { error } = await supabase.auth.signUp({
+                    email: em,
+                    password: ps,
+                    options: { data: { full_name: nm } }
+                  });
+                  if (error) alert("Erro no Cadastro: " + error.message);
+                  else {
+                    alert("Sucesso! Verifique seu e-mail ou faça login agora.");
+                    setAuthMode('login');
+                  }
+                }
+             }} className="w-full bg-teal-500 text-black py-5 rounded-2xl font-black uppercase hover:scale-105 active:scale-95 transition-all shadow-[0_15px_30px_rgba(20,184,166,0.2)]">
+               {authMode === 'login' ? 'Entrar na Operação' : 'Finalizar Alistamento'}
+             </button>
+
+             <div className="pt-4">
+                {authMode === 'login' ? (
+                  <button onClick={() => setAuthMode('register')} className="text-[10px] text-gray-500 hover:text-teal-400 font-black uppercase tracking-widest transition-colors">
+                    Não tem uma conta? <span className="underline decoration-teal-500/50">Recrute-se agora</span>
+                  </button>
+                ) : (
+                  <button onClick={() => setAuthMode('login')} className="text-[10px] text-gray-500 hover:text-teal-400 font-black uppercase tracking-widest transition-colors">
+                    Já possui acesso? <span className="underline decoration-teal-500/50">Voltar para o Comando</span>
+                  </button>
+                )}
+             </div>
+
+             <p className="text-[9px] text-gray-700 font-black uppercase tracking-widest text-center pt-2">Omega Group © 2025</p>
           </div>
         </div>
       </div>
