@@ -31,9 +31,12 @@ export interface DriveItem {
 
 export interface User {
   id: string;
+  authId?: string; // ID do Supabase Auth
+  email?: string;
   name: string;
   role: UserRole;
   isActive: boolean;
+  isApproved: boolean; // Novo: Status de aprovação pelo CEO
   avatar?: string;
   salesCount?: number;
   salesVolume?: number;
@@ -60,7 +63,7 @@ export interface Client {
   notes?: string;
   statusFlag: ClientStatus;
   folder?: ClientFolder;
-  isPaused?: boolean; // Novo: Status de pausa
+  isPaused?: boolean;
 }
 
 export interface Task {
@@ -97,7 +100,7 @@ export interface MonthlyData {
     salesGoal: SalesGoal;
     chatMessages?: ChatMessage[];
     drive?: DriveItem[];
-    wiki?: DriveItem[]; // Novo: Base de conhecimento exclusiva
+    wiki?: DriveItem[];
   };
 }
 

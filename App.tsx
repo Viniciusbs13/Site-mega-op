@@ -11,7 +11,8 @@ import TeamView from './components/TeamView';
 import SalesView from './components/SalesView';
 import WikiView from './components/WikiView'; 
 import { dbService } from './services/database';
-import { Hash, LogIn, ShieldCheck, UserCircle, LogOut, Lock, RefreshCw, AlertCircle, Copy, Check, Database, ShieldAlert, ShieldCheck as ShieldIcon, KeyRound } from 'lucide-react';
+import { supabase } from './supabaseClient';
+import { Hash, LogIn, ShieldCheck, UserCircle, LogOut, Lock, RefreshCw, AlertCircle, Copy, Check, Database, ShieldAlert, ShieldCheck as ShieldIcon, KeyRound, UserPlus, Mail, Fingerprint } from 'lucide-react';
 
 const App: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -19,8 +20,13 @@ const App: React.FC = () => {
   const monthKey = `${currentMonthName} ${currentYear}`;
 
   const [isLoading, setIsLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [accessCode, setAccessCode] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [requestedRole, setRequestedRole] = useState<UserRole>(DefaultUserRole.MANAGER);
+  
   const [dbStatus, setDbStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -33,8 +39,7 @@ const App: React.FC = () => {
 
   const [availableRoles, setAvailableRoles] = useState<string[]>(Object.values(DefaultUserRole));
   const [team, setTeam] = useState<User[]>([
-    { id: 'ceo-master', name: 'Diretoria Ômega', role: DefaultUserRole.CEO, isActive: true },
-    { id: 'm1', name: 'Ricardo Tráfego', role: DefaultUserRole.MANAGER, isActive: true }
+    { id: 'ceo-master', name: 'Diretoria Ômega', role: DefaultUserRole.CEO, isActive: true, isApproved: true }
   ]);
   
   const [db, setDb] = useState<MonthlyData>({
@@ -48,7 +53,6 @@ const App: React.FC = () => {
     }
   });
 
-  // Script SQL Ultra-Seguro (RLS Hardened)
   const sqlSetup = `-- 1. TABELA ATÔMICA
 CREATE TABLE IF NOT EXISTS project_state (
   id TEXT PRIMARY KEY,
@@ -59,55 +63,56 @@ CREATE TABLE IF NOT EXISTS project_state (
 -- 2. ATIVAR BLINDAGEM RLS
 ALTER TABLE project_state ENABLE ROW LEVEL SECURITY;
 
--- 3. LIMPAR POLÍTICAS
-DROP POLICY IF EXISTS "Leitura Pública" ON project_state;
-DROP POLICY IF EXISTS "Escrita Restrita" ON project_state;
-DROP POLICY IF EXISTS "Permitir Update" ON project_state;
-DROP POLICY IF EXISTS "Permitir Insert" ON project_state;
-
--- 4. POLÍTICA DE LEITURA (APENAS SELECT)
-CREATE POLICY "Leitura Pública" ON project_state 
-FOR SELECT TO anon USING (true);
-
--- 5. POLÍTICA DE INSERÇÃO (APENAS ID OFICIAL)
-CREATE POLICY "Permitir Insert" ON project_state 
-FOR INSERT TO anon WITH CHECK (id = 'current_omega_config');
-
--- 6. POLÍTICA DE ATUALIZAÇÃO (APENAS ID OFICIAL)
-CREATE POLICY "Permitir Update" ON project_state 
-FOR UPDATE TO anon USING (id = 'current_omega_config') WITH CHECK (id = 'current_omega_config');
-
--- OBS: COMANDO DELETE NÃO POSSUI POLÍTICA, PORTANTO ESTÁ BLOQUEADO POR PADRÃO (SECURITY BY DEFAULT)`;
+-- 3. POLÍTICAS RLS
+DROP POLICY IF EXISTS "Acesso Público" ON project_state;
+CREATE POLICY "Acesso Público" ON project_state FOR ALL TO anon USING (true);`;
 
   useEffect(() => {
-    const initDb = async () => {
+    const init = async () => {
       setIsLoading(true);
-      const result = await dbService.loadState();
       
-      if (result.error === 'TABLE_NOT_FOUND') {
-        setShowSetupModal(true);
-        setDbStatus('error');
-      } else if (result.error) {
-        setDbStatus('error');
-      } else {
-        setDbStatus('connected');
-      }
-
+      // Carregar estado global
+      const result = await dbService.loadState();
+      if (result.error === 'TABLE_NOT_FOUND') setShowSetupModal(true);
       if (result.state) {
         setTeam(result.state.team);
         setAvailableRoles(result.state.availableRoles);
         setDb(result.state.db);
       }
-      setIsLoading(false);
 
-      // Checar sessão local
-      const savedUser = localStorage.getItem('omega_session_user');
-      if (savedUser) {
-        setCurrentUser(JSON.parse(savedUser));
-        setIsAuthenticated(true);
+      // Verificar sessão Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && result.state) {
+        const userInTeam = result.state.team.find(u => u.authId === session.user.id);
+        if (userInTeam) {
+          setCurrentUser(userInTeam);
+          setIsAuthenticated(true);
+        }
       }
+      
+      setIsLoading(false);
     };
-    initDb();
+    init();
+
+    // Listener de Auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        // Recarregar para garantir que pegamos o time atualizado
+        const res = await dbService.loadState();
+        if (res.state) {
+          const user = res.state.team.find(u => u.authId === session.user.id);
+          if (user) {
+            setCurrentUser(user);
+            setIsAuthenticated(true);
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -115,105 +120,154 @@ FOR UPDATE TO anon USING (id = 'current_omega_config') WITH CHECK (id = 'current
       const sync = async () => {
         setDbStatus('syncing');
         const result = await dbService.saveState({ team, availableRoles, db });
-        if (result.success) {
-          setDbStatus('connected');
-        } else if (result.error?.code === '42P01') {
-          setShowSetupModal(true);
-          setDbStatus('error');
-        } else {
-          setDbStatus('error');
-        }
+        if (result.success) setDbStatus('connected');
+        else setDbStatus('error');
       };
       const timeout = setTimeout(sync, 1500);
       return () => clearTimeout(timeout);
     }
   }, [team, availableRoles, db, isLoading, showSetupModal, isAuthenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Chave Mestra Padrão: omega2025 (Pode ser alterado conforme necessidade)
-    if (accessCode === 'omega2025' || accessCode === 'admin') {
-      const user = team[0]; // Inicia como CEO para o dono do setup
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      localStorage.setItem('omega_session_user', JSON.stringify(user));
-    } else {
-      alert('Chave de acesso inválida. Contate a diretoria.');
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) throw error;
+      if (data.user) {
+        const newUser: User = {
+          id: Math.random().toString(36).substr(2, 9),
+          authId: data.user.id,
+          email: email,
+          name: fullName,
+          role: requestedRole,
+          isActive: false,
+          isApproved: false
+        };
+        // Atualizar estado local do time e sincronizar imediatamente
+        const newTeam = [...team, newUser];
+        setTeam(newTeam);
+        await dbService.saveState({ team: newTeam, availableRoles, db });
+        alert('Cadastro realizado! Aguarde a aprovação de um administrador para acessar o sistema.');
+        setAuthMode('LOGIN');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsAuthenticated(false);
     setCurrentUser(null);
-    localStorage.removeItem('omega_session_user');
   };
 
   const currentData = db[selectedMonth] || { 
-    clients: [], 
-    tasks: [], 
-    salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: 'https://seulink.com/onboarding', salesNotes: '' }, 
-    chatMessages: [],
-    drive: [],
-    wiki: []
+    clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, 
+    chatMessages: [], drive: [], wiki: []
   };
 
   const updateCurrentMonthData = (updates: Partial<MonthlyData[string]>) => {
     setDb(prev => ({ ...prev, [selectedMonth]: { ...currentData, ...updates } }));
   };
 
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(sqlSetup);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   if (isLoading) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Criptografando Túnel de Dados...</p>
+        <p className="text-xs font-black text-teal-500 uppercase tracking-[0.4em] animate-pulse">Sincronizando Ômega Cloud...</p>
       </div>
     );
   }
 
-  // Tela de Login (Vulnerabilidade de Acesso Corrigida)
+  // Tela de Autenticação Reestruturada
   if (!isAuthenticated) {
     return (
       <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#14b8a6]/10 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 blur-[120px] rounded-full"></div>
         
-        <form onSubmit={handleLogin} className="bg-[#111] border border-white/5 p-12 rounded-[48px] max-w-md w-full shadow-2xl space-y-8 relative z-10 animate-in fade-in zoom-in duration-500">
+        <form onSubmit={authMode === 'LOGIN' ? handleLogin : handleRegister} className="bg-[#111] border border-white/5 p-10 rounded-[48px] max-w-md w-full shadow-2xl space-y-6 relative z-10 animate-in fade-in zoom-in duration-500">
            <div className="text-center space-y-2">
-              <div className="w-16 h-16 bg-[#14b8a6] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-[0_10px_30px_rgba(20,184,166,0.3)]">
-                <span className="text-black font-black text-3xl">Ω</span>
+              <div className="w-14 h-14 bg-[#14b8a6] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_10px_30px_rgba(20,184,166,0.3)]">
+                <span className="text-black font-black text-2xl">Ω</span>
               </div>
-              <h1 className="text-3xl font-black text-white italic uppercase tracking-tighter">Portal Ômega</h1>
-              <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Acesso Restrito ao Time Operacional</p>
+              <h1 className="text-2xl font-black text-white italic uppercase tracking-tighter">
+                {authMode === 'LOGIN' ? 'Portal de Acesso' : 'Solicitar Cadastro'}
+              </h1>
            </div>
 
            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2">
-                  <KeyRound className="w-3 h-3" /> Chave de Identificação
-                </label>
-                <input 
-                  type="password"
-                  value={accessCode}
-                  onChange={e => setAccessCode(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-black border border-white/5 rounded-2xl px-6 py-5 text-white text-center text-xl tracking-[0.5em] outline-none focus:border-[#14b8a6] transition-all"
-                />
+              {authMode === 'REGISTER' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><UserCircle className="w-3 h-3" /> Nome Completo</label>
+                    <input required type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Seu Nome" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><ShieldIcon className="w-3 h-3" /> Função Desejada</label>
+                    <select value={requestedRole} onChange={e => setRequestedRole(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none">
+                      {availableRoles.filter(r => r !== 'CEO').map(r => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><Mail className="w-3 h-3" /> E-mail Profissional</label>
+                <input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
               </div>
-              <button type="submit" className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20">
-                AUTENTICAR ENTRADA
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 flex items-center gap-2"><Lock className="w-3 h-3" /> Senha</label>
+                <input required type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-black border border-white/5 rounded-2xl px-5 py-4 text-white text-sm outline-none focus:border-[#14b8a6]" />
+              </div>
+
+              <button type="submit" className="w-full bg-[#14b8a6] text-black py-4 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20">
+                {authMode === 'LOGIN' ? 'ENTRAR NO SISTEMA' : 'SOLICITAR ADMISSÃO'}
               </button>
            </div>
 
-           <p className="text-[9px] text-center text-gray-600 font-bold uppercase tracking-widest leading-relaxed">
-             Este sistema é monitorado. Tentativas de acesso não autorizadas são registradas conforme protocolos RLS.
-           </p>
+           <div className="text-center">
+             <button type="button" onClick={() => setAuthMode(authMode === 'LOGIN' ? 'REGISTER' : 'LOGIN')} className="text-[10px] font-bold text-gray-500 hover:text-teal-500 uppercase tracking-widest">
+               {authMode === 'LOGIN' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça Login'}
+             </button>
+           </div>
         </form>
+      </div>
+    );
+  }
+
+  // Tela de Bloqueio (Não aprovado)
+  if (currentUser && !currentUser.isApproved) {
+    return (
+      <div className="h-screen w-full bg-[#0a0a0a] flex items-center justify-center p-6 text-center">
+         <div className="max-w-md space-y-6">
+            <Fingerprint className="w-20 h-20 text-teal-500 mx-auto animate-pulse" />
+            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Acesso Pendente</h2>
+            <p className="text-gray-500 text-sm leading-relaxed">
+              Olá, <span className="text-white">{currentUser.name}</span>. Sua solicitação para a função de <span className="text-teal-500">{currentUser.role.replace('_', ' ')}</span> foi registrada com sucesso.
+              <br /><br />
+              A diretoria precisa aprovar seu perfil antes que você possa visualizar os dados da empresa.
+            </p>
+            <button onClick={handleLogout} className="text-xs font-black text-red-500 uppercase tracking-widest flex items-center gap-2 mx-auto hover:text-red-400">
+               <LogOut className="w-4 h-4" /> Cancelar e Sair
+            </button>
+         </div>
       </div>
     );
   }
@@ -226,10 +280,10 @@ FOR UPDATE TO anon USING (id = 'current_omega_config') WITH CHECK (id = 'current
         <TeamView 
           team={team} currentUser={currentUser} availableRoles={availableRoles} 
           onUpdateRole={(id, r) => setTeam(prev => prev.map(u => u.id === id ? { ...u, role: r } : u))}
-          onAddMember={(name, role) => setTeam(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name, role, isActive: true }])}
+          onAddMember={(name, role) => setTeam(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name, role, isActive: true, isApproved: true }])}
           onRemoveMember={(id) => setTeam(prev => prev.filter(u => u.id !== id))}
           onAddRole={(role) => setAvailableRoles([...availableRoles, role])}
-          onToggleActive={(id) => setTeam(prev => prev.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u))} 
+          onToggleActive={(id) => setTeam(prev => prev.map(u => u.id === id ? { ...u, isActive: !u.isActive, isApproved: true } : u))} 
         />
       );
       case 'commercial': return (
@@ -306,50 +360,14 @@ FOR UPDATE TO anon USING (id = 'current_omega_config') WITH CHECK (id = 'current
         <div className="fixed top-[-100px] right-[-100px] w-[700px] h-[700px] bg-[#14b8a6]/5 blur-[180px] rounded-full pointer-events-none -z-10"></div>
       </main>
 
-      {/* Setup de Segurança & Banco Modal (Hardened) */}
       {showSetupModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
-          <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8">
-             <div className="flex items-center gap-6">
-                <div className="w-16 h-16 bg-teal-500/10 rounded-[24px] flex items-center justify-center border border-teal-500/20">
-                   <ShieldIcon className="w-8 h-8 text-teal-500" />
-                </div>
-                <div>
-                   <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter leading-tight">Blindagem de Nível 3</h2>
-                   <p className="text-gray-500 text-sm">Atualize seu Supabase para ativar políticas anti-vandalismo.</p>
-                </div>
-             </div>
-
-             <div className="bg-red-500/5 border border-red-500/10 rounded-3xl p-6 space-y-4">
-                <div className="flex items-center gap-2 text-red-500">
-                  <ShieldAlert className="w-4 h-4" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Protocolo de Segurança Ativo</p>
-                </div>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Este script agora bloqueia permanentemente a função <span className="text-white font-bold">DELETE</span> via API anônima. Seus dados só poderão ser removidos manualmente via painel administrativo do Supabase, prevenindo ataques destrutivos.
-                </p>
-             </div>
-
-             <div className="relative group">
-                <div className="absolute top-4 right-4 z-10">
-                   <button 
-                    onClick={handleCopySql}
-                    className="bg-white/5 hover:bg-white/10 p-2 rounded-xl transition-all border border-white/10"
-                   >
-                     {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-gray-400" />}
-                   </button>
-                </div>
-                <pre className="bg-black rounded-3xl p-8 pt-12 text-[11px] text-[#14b8a6] font-mono overflow-x-auto border border-white/5 max-h-[250px] custom-scrollbar">
-                  {sqlSetup}
-                </pre>
-             </div>
-
-             <button 
-              onClick={() => window.location.reload()}
-              className="w-full bg-[#14b8a6] text-black py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20"
-             >
-               CONCLUÍDO, RECARREGAR SISTEMA BLINDADO
-             </button>
+          <div className="bg-[#111] border border-white/10 rounded-[48px] p-12 max-w-2xl w-full shadow-2xl animate-in zoom-in duration-300 space-y-8 text-center">
+             <ShieldIcon className="w-16 h-16 text-teal-500 mx-auto" />
+             <h2 className="text-2xl font-black text-white uppercase italic">Sincronização Inicial</h2>
+             <p className="text-gray-500 text-sm leading-relaxed">Execute o script SQL no Supabase para inicializar o cluster de dados.</p>
+             <pre className="bg-black rounded-3xl p-6 text-[10px] text-teal-500 font-mono text-left overflow-x-auto max-h-[150px]">{sqlSetup}</pre>
+             <button onClick={() => window.location.reload()} className="w-full bg-[#14b8a6] text-black py-4 rounded-xl font-black uppercase">RECARREGAR</button>
           </div>
         </div>
       )}
