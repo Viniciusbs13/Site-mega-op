@@ -2,7 +2,7 @@
 import React from 'react';
 // Import DefaultUserRole for enum value access
 import { Client, Task, User, DefaultUserRole } from '../types';
-import { LayoutDashboard, ArrowRight, ChevronRight, FileText, Clock, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, ArrowRight, ChevronRight, FileText, Clock, AlertTriangle, ShieldAlert, Calendar as CalendarIcon, Zap } from 'lucide-react';
 
 interface DashboardProps {
   clients: Client[];
@@ -14,7 +14,6 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, currentMonth, onMonthChange, months }) => {
-  /* Fixed: Using DefaultUserRole enum instead of UserRole type alias */
   const isCEO = currentUser.role === DefaultUserRole.CEO;
   
   // Filtra dados se não for CEO
@@ -22,7 +21,6 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
   const filteredTasks = isCEO ? tasks : tasks.filter(t => t.assignedTo === currentUser.id || t.assignedTo === 'ALL');
 
   const completedTasks = filteredTasks.filter(t => t.status === 'COMPLETED').length;
-  const pendingTasks = filteredTasks.filter(t => t.status === 'PENDING').length;
   const avgProgress = filteredClients.length ? Math.round(filteredClients.reduce((acc, c) => acc + c.progress, 0) / filteredClients.length) : 0;
 
   const getStatusColor = (flag: string) => {
@@ -30,6 +28,27 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
     if (flag === 'YELLOW') return 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.4)]';
     return 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]';
   };
+
+  // Lógica do Calendário
+  const today = new Date();
+  const currentDay = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).getDay();
+  
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const blanks = Array.from({ length: firstDayOfMonth }, (_, i) => i);
+
+  const motivationalPhrases = [
+    "O SUCESSO É A SOMA DE PEQUENOS ESFORÇOS REPETIDOS DIA APÓS DIA.",
+    "A DISCIPLINA É A PONTE ENTRE METAS E REALIZAÇÕES.",
+    "NÃO PARE QUANDO ESTIVER CANSADO, PARE QUANDO TIVER TERMINADO.",
+    "EXCELÊNCIA NÃO É UM ATO, MAS UM HÁBITO.",
+    "O TRABALHO DURO VENCE O TALENTO QUANDO O TALENTO NÃO TRABALHA DURO.",
+    "SUA ÚNICA COMPETIÇÃO É QUEM VOCÊ FOI ONTEM.",
+    "FOCO TOTAL NA EXECUÇÃO. O RESULTADO É CONSEQUÊNCIA."
+  ];
+
+  const phraseOfTheDay = motivationalPhrases[today.getDate() % motivationalPhrases.length];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-[1600px] mx-auto pb-12">
@@ -54,9 +73,9 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         <div className="xl:col-span-3 space-y-6">
-          <div className="bg-[#111] border border-white/5 rounded-[32px] p-12 relative overflow-hidden group min-h-[400px] flex flex-col justify-center">
+          <div className="bg-[#111] border border-white/5 rounded-[32px] p-12 relative overflow-hidden group min-h-[400px] flex flex-col justify-center shadow-2xl">
             <div className="absolute right-[-20px] bottom-[-20px] opacity-[0.03] pointer-events-none group-hover:opacity-[0.05] transition-opacity">
-              <span className="text-[350px] font-black leading-none select-none">Ω</span>
+              <span className="text-[350px] font-black leading-none select-none text-white">Ω</span>
             </div>
 
             <div className="relative z-10">
@@ -69,22 +88,22 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
               </div>
               <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-white transition-all duration-1000 ease-out" 
+                  className="h-full bg-gradient-to-r from-teal-500 to-[#14b8a6] shadow-[0_0_15px_rgba(20,184,166,0.5)] transition-all duration-1000 ease-out" 
                   style={{ width: `${avgProgress}%` }}
                 ></div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-12 relative z-10">
-              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6">
+              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6 hover:border-teal-500/20 transition-colors">
                 <p className="text-[10px] font-bold text-gray-600 uppercase mb-2 tracking-widest">Suas Tarefas</p>
                 <p className="text-3xl font-black text-white">{filteredTasks.length}</p>
               </div>
-              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6">
+              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6 hover:border-teal-500/20 transition-colors">
                 <p className="text-[10px] font-bold text-gray-600 uppercase mb-2 tracking-widest">Concluídas</p>
                 <p className="text-3xl font-black text-[#14b8a6]">{completedTasks}</p>
               </div>
-              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6">
+              <div className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6 hover:border-teal-500/20 transition-colors">
                 <p className="text-[10px] font-bold text-gray-600 uppercase mb-2 tracking-widest">Suas Contas</p>
                 <p className="text-3xl font-black text-white">{filteredClients.length}</p>
               </div>
@@ -92,19 +111,65 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
           </div>
         </div>
 
-        <div className="bg-[#14b8a6] rounded-[32px] p-10 flex flex-col justify-between text-black relative overflow-hidden">
-          <div className="absolute top-[-20px] right-[-20px] opacity-10">
-            <span className="text-[200px] font-black">Ω</span>
-          </div>
-          <div className="relative z-10">
-            <p className="text-lg font-bold mb-4 italic uppercase">{currentMonth}</p>
-            <h3 className="text-4xl font-black leading-[1.1] tracking-tighter mb-8 uppercase italic">
-              Excelência <br/> na execução.
+        {/* COLUNA DO CALENDÁRIO & MOTIVAÇÃO */}
+        <div className="xl:col-span-1 space-y-6 flex flex-col">
+          {/* FRASE MOTIVACIONAL */}
+          <div className="bg-[#111] border border-white/5 rounded-[32px] p-8 flex flex-col justify-center min-h-[140px] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+              <Zap className="w-12 h-12 text-teal-500" />
+            </div>
+            <p className="text-[9px] font-black text-teal-500 uppercase tracking-[0.3em] mb-3">Diretoria Ômega • Mindset</p>
+            <h3 className="text-lg font-black text-white leading-tight uppercase italic tracking-tighter">
+              "{phraseOfTheDay}"
             </h3>
           </div>
-          <div className="p-4 bg-black/10 rounded-2xl">
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Status de Rede</p>
-             <p className="text-xs font-bold">100% Criptografado</p>
+
+          {/* CALENDÁRIO */}
+          <div className="bg-[#111] border border-white/5 rounded-[32px] p-8 flex-1 flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <CalendarIcon className="w-5 h-5 text-teal-500" />
+                <h4 className="text-sm font-black text-white uppercase italic tracking-widest">{currentMonth.split(' ')[0]}</h4>
+              </div>
+              <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">{today.getFullYear()}</span>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 mb-4">
+              {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, idx) => (
+                <div key={idx} className="text-center text-[9px] font-black text-gray-700 uppercase">{day}</div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 flex-1 content-start">
+              {blanks.map(i => <div key={`b-${i}`} className="aspect-square"></div>)}
+              {days.map(day => (
+                <div 
+                  key={day} 
+                  className={`aspect-square rounded-xl flex items-center justify-center text-xs font-bold transition-all border ${
+                    day === currentDay 
+                    ? 'bg-teal-500 text-black border-teal-500 shadow-[0_0_15px_rgba(20,184,166,0.4)] scale-110 z-10' 
+                    : 'bg-black/20 border-white/5 text-gray-500 hover:border-teal-500/30'
+                  }`}
+                >
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-white/5">
+               <div className="flex items-center justify-between">
+                 <div className="space-y-1">
+                   <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Status da Operação</p>
+                   <p className="text-[10px] font-bold text-green-500 uppercase tracking-tighter flex items-center gap-1">
+                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Sistema Ativo
+                   </p>
+                 </div>
+                 <div className="text-right">
+                    <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Check-in de Hoje</p>
+                    <p className="text-[10px] font-black text-white uppercase tracking-tighter">Realizado</p>
+                 </div>
+               </div>
+            </div>
           </div>
         </div>
       </div>
