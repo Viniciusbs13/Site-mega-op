@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Client, User, DefaultUserRole, ClientStatus, ClientHealth } from '../types';
-import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck, Plus, Target, DollarSign, Filter } from 'lucide-react';
+import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck, Plus, Target, DollarSign, Filter, Building2, CheckCircle2, Crown, Zap } from 'lucide-react';
 
 interface SquadsViewProps {
   clients: Client[];
@@ -32,8 +32,8 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
     const client: Client = {
       id: Math.random().toString(36).substr(2, 9),
       name: newClient.name,
-      industry: newClient.industry || 'Geral',
-      health: ClientHealth.STABLE,
+      industry: newClient.industry || 'Base Geral',
+      health: ClientHealth.EXCELLENT,
       progress: 0,
       assignedUserIds: [],
       contractValue: parseFloat(newClient.contractValue),
@@ -48,118 +48,139 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-[1400px] mx-auto pb-24">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter flex items-center gap-3">
-            <Briefcase className="w-8 h-8 text-teal-500" /> CRM de Clientes
+    <div className="space-y-16 animate-in fade-in duration-500 max-w-[1500px] mx-auto pb-40">
+      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-10">
+        <div className="space-y-2">
+          <h2 className="text-5xl font-black text-white italic uppercase tracking-tighter flex items-center gap-5">
+            <Crown className="w-12 h-12 text-teal-500" /> CRM de Faturamento
           </h2>
-          <p className="text-sm text-gray-400 font-medium">Controle de faturamento e direcionamento de acessos.</p>
+          <p className="text-sm text-gray-500 font-bold ml-1 uppercase tracking-[0.2em] flex items-center gap-3">
+             <Zap className="w-4 h-4 text-teal-600" /> Controle Hierárquico de Clientes Ativos
+          </p>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex bg-[#111] border border-white/5 p-1.5 rounded-2xl">
+        <div className="flex flex-wrap items-center gap-8">
+          <div className="flex bg-white/5 border border-white/10 p-2.5 rounded-[32px] shadow-inner">
             <button 
               onClick={() => setView('ACTIVE')}
-              className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'ACTIVE' ? 'bg-[#14b8a6] text-black shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-12 py-4 rounded-2xl text-[11px] font-black uppercase transition-all ${view === 'ACTIVE' ? 'bg-[#14b8a6] text-black shadow-lg shadow-teal-500/30' : 'text-gray-500 hover:text-gray-300'}`}
             >
-              Ativos ({clients.filter(c => !c.isPaused).length})
+              Faturamento Ativo ({clients.filter(c => !c.isPaused).length})
             </button>
             <button 
               onClick={() => setView('PAUSED')}
-              className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${view === 'PAUSED' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-12 py-4 rounded-2xl text-[11px] font-black uppercase transition-all ${view === 'PAUSED' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30' : 'text-gray-500 hover:text-gray-300'}`}
             >
-              Pausados ({clients.filter(c => c.isPaused).length})
+              Pausas ({clients.filter(c => c.isPaused).length})
             </button>
           </div>
 
           {isCEO && (
             <button 
               onClick={() => setIsAddingClient(true)}
-              className="bg-[#14b8a6] px-8 py-4 rounded-2xl text-[10px] font-black text-black uppercase hover:scale-105 transition-all flex items-center gap-2 shadow-lg shadow-teal-500/20"
+              className="bg-[#14b8a6] px-12 py-6 rounded-[30px] text-[12px] font-black text-black uppercase hover:scale-105 transition-all flex items-center gap-4 shadow-[0_20px_40px_rgba(20,184,166,0.35)] group animate-pulse hover:animate-none"
             >
-              <Plus className="w-4 h-4" /> ADMITIR NOVO CLIENTE
+              <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform" /> ADMITIR NOVO CLIENTE
             </button>
           )}
         </div>
       </header>
 
-      {/* MODAL ADICIONAR CLIENTE */}
+      {/* MODAL ADICIONAR CLIENTE (EXCLUSIVO CEO) */}
       {isAddingClient && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-6">
-           <form onSubmit={handleAddClientSubmit} className="w-full max-w-xl bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 shadow-2xl relative">
-              <button type="button" onClick={() => setIsAddingClient(false)} className="absolute right-8 top-8 text-gray-500 hover:text-white"><X /></button>
-              <div className="text-center">
-                <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Novo Contrato Ativo</h3>
-                <p className="text-xs text-gray-500 uppercase tracking-widest mt-2">Registrar cliente na base operacional</p>
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/98 backdrop-blur-2xl p-6">
+           <form onSubmit={handleAddClientSubmit} className="w-full max-w-2xl bg-[#0a0a0a] border border-teal-500/20 rounded-[80px] p-16 space-y-12 shadow-[0_0_100px_rgba(20,184,166,0.1)] relative animate-in zoom-in duration-300">
+              <button type="button" onClick={() => setIsAddingClient(false)} className="absolute right-12 top-12 text-gray-500 hover:text-teal-400 transition-colors"><X className="w-10 h-10" /></button>
+              
+              <div className="text-center space-y-4">
+                <div className="w-24 h-24 bg-teal-500/10 rounded-[40px] flex items-center justify-center mx-auto mb-8 border border-teal-500/30 shadow-[0_15px_30px_rgba(20,184,166,0.1)]">
+                   <Building2 className="w-12 h-12 text-teal-500" />
+                </div>
+                <h3 className="text-4xl font-black text-white italic uppercase tracking-tighter">Admissão Operacional</h3>
+                <p className="text-xs text-gray-600 uppercase tracking-[0.4em]">Registrar cliente ativo na base Ômega</p>
               </div>
-              <div className="space-y-4">
-                 <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Nome da Empresa</label>
-                    <input required value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="Ex: Master Store" />
+
+              <div className="space-y-8">
+                 <div className="space-y-3">
+                    <label className="text-[11px] font-black text-gray-500 uppercase ml-6 tracking-widest italic">Razão Social / Nome Fantasia</label>
+                    <input required value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} className="w-full bg-black border border-white/10 rounded-[35px] px-10 py-6 text-white outline-none focus:border-teal-500 transition-all text-xl font-bold shadow-inner" placeholder="Ex: Grupo Master Brasil" />
                  </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Nicho/Setor</label>
-                        <input value={newClient.industry} onChange={e => setNewClient({...newClient, industry: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="Ex: E-commerce" />
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                        <label className="text-[11px] font-black text-gray-500 uppercase ml-6 tracking-widest italic">Segmento</label>
+                        <input value={newClient.industry} onChange={e => setNewClient({...newClient, industry: e.target.value})} className="w-full bg-black border border-white/10 rounded-[35px] px-10 py-6 text-white outline-none focus:border-teal-500 transition-all font-bold shadow-inner" placeholder="Ex: E-commerce" />
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-500 uppercase ml-2">Valor Mensal (R$)</label>
-                        <input required type="number" value={newClient.contractValue} onChange={e => setNewClient({...newClient, contractValue: e.target.value})} className="w-full bg-black border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-teal-500" placeholder="0.00" />
+                    <div className="space-y-3">
+                        <label className="text-[11px] font-black text-gray-500 uppercase ml-6 tracking-widest italic">Fee Mensal (R$)</label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-8 top-1/2 -translate-y-1/2 w-6 h-6 text-teal-500" />
+                          <input required type="number" value={newClient.contractValue} onChange={e => setNewClient({...newClient, contractValue: e.target.value})} className="w-full bg-black border border-white/10 rounded-[35px] px-16 py-6 text-white outline-none focus:border-teal-500 transition-all font-black text-2xl shadow-inner" placeholder="0.00" />
+                        </div>
                     </div>
                  </div>
               </div>
-              <button type="submit" className="w-full bg-teal-500 text-black py-5 rounded-3xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-teal-500/20">CONFIRMAR ADMISSÃO</button>
+
+              <button type="submit" className="w-full bg-teal-500 text-black py-8 rounded-[40px] font-black uppercase tracking-[0.3em] hover:scale-[1.02] active:scale-95 transition-all shadow-[0_25px_50px_rgba(20,184,166,0.3)] text-xl flex items-center justify-center gap-4 group">
+                <CheckCircle2 className="w-8 h-8 group-hover:scale-110 transition-transform" /> FINALIZAR ADMISSÃO
+              </button>
            </form>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-8">
+      <div className="grid grid-cols-1 gap-14">
         {filteredClients.map(client => (
-          <div key={client.id} className={`bg-[#111] border rounded-[48px] p-10 flex flex-col gap-10 transition-all ${client.isPaused ? 'border-amber-500/20 grayscale opacity-70' : 'border-white/5 hover:border-teal-500/20 shadow-2xl'}`}>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
-              <div className="flex-1 space-y-3">
-                <div className="flex items-center gap-4">
-                  <div className={`w-4 h-4 rounded-full ${client.statusFlag === 'GREEN' ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]' : client.statusFlag === 'YELLOW' ? 'bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'bg-red-500 shadow-[0_0_15_rgba(239,68,68,0.5)]'}`}></div>
-                  <h4 className="text-3xl font-black text-white uppercase italic tracking-tighter">{client.name}</h4>
-                  {client.isPaused && <span className="bg-amber-500/10 text-amber-500 text-[9px] px-3 py-1 rounded-full font-black uppercase tracking-widest border border-amber-500/20">Operação Congelada</span>}
+          <div key={client.id} className={`bg-[#111] border rounded-[70px] p-14 flex flex-col gap-14 transition-all group ${client.isPaused ? 'border-amber-500/20 grayscale opacity-70' : 'border-white/5 hover:border-teal-500/25 shadow-2xl hover:shadow-teal-500/5'}`}>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-12">
+              <div className="flex-1 space-y-6">
+                <div className="flex items-center gap-8">
+                  <div className={`w-6 h-6 rounded-full ${client.statusFlag === 'GREEN' ? 'bg-green-500 shadow-[0_0_25px_rgba(34,197,94,0.7)]' : client.statusFlag === 'YELLOW' ? 'bg-yellow-500 shadow-[0_0_25px_rgba(234,179,8,0.7)]' : 'bg-red-500 shadow-[0_0_25px_rgba(239,68,68,0.7)]'}`}></div>
+                  <h4 className="text-5xl font-black text-white uppercase italic tracking-tighter leading-none">{client.name}</h4>
+                  {client.isPaused && <span className="bg-amber-500/15 text-amber-500 text-[11px] px-7 py-2.5 rounded-full font-black uppercase tracking-[0.2em] border border-amber-500/30">OPERACAO CONGELADA</span>}
                 </div>
-                <div className="flex flex-wrap items-center gap-6 text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                  <span className="flex items-center gap-2 text-teal-500 bg-teal-500/5 px-3 py-1 rounded-lg border border-teal-500/10"><TrendingUp className="w-3.5 h-3.5"/> R$ {client.contractValue.toLocaleString()}</span>
-                  <span className="flex items-center gap-2"><Briefcase className="w-3.5 h-3.5"/> {client.industry}</span>
-                  <span className="flex items-center gap-2"><Users className="w-3.5 h-3.5"/> {client.assignedUserIds?.length || 0} Colaboradores</span>
+                
+                <div className="flex flex-wrap items-center gap-14 text-[13px] text-gray-500 font-black uppercase tracking-[0.25em]">
+                  <span className="flex items-center gap-4 text-teal-400 bg-teal-500/5 px-6 py-3 rounded-2xl border border-teal-500/15 shadow-sm">
+                    <TrendingUp className="w-5 h-5"/> R$ {client.contractValue.toLocaleString()} / Mês
+                  </span>
+                  <span className="flex items-center gap-4 text-gray-400">
+                    <Building2 className="w-5 h-5 text-teal-600"/> {client.industry}
+                  </span>
+                  <span className="flex items-center gap-4 text-gray-400">
+                    <Users className="w-5 h-5 text-teal-600"/> {client.assignedUserIds?.length || 0} GESTORES VINCULADOS
+                  </span>
                 </div>
               </div>
 
               {isCEO && (
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-5">
                   <button 
                     onClick={() => onTogglePauseClient(client.id)} 
-                    title={client.isPaused ? "Retomar Trabalho" : "Pausar Trabalho"}
-                    className={`p-5 rounded-2xl transition-all border ${client.isPaused ? 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20'}`}
+                    title={client.isPaused ? "Retomar Faturamento" : "Congelar Faturamento"}
+                    className={`p-7 rounded-[35px] transition-all border shadow-lg ${client.isPaused ? 'bg-green-500/10 text-green-500 border-green-500/30 hover:bg-green-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20'}`}
                   >
-                    {client.isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                    {client.isPaused ? <Play className="w-8 h-8" fill="currentColor" /> : <Pause className="w-8 h-8" fill="currentColor" />}
                   </button>
                   <button 
-                    onClick={() => { if(confirm('Excluir permanentemente este cliente da base?')) onRemoveClient(client.id); }} 
-                    title="Excluir Cliente"
-                    className="p-5 bg-red-500/10 text-red-500 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all"
+                    onClick={() => { if(confirm('⚠️ REMOÇÃO CRÍTICA: Deseja apagar todos os dados operacionais deste cliente?')) onRemoveClient(client.id); }} 
+                    title="Remover Base"
+                    className="p-7 bg-red-600/10 text-red-500 border border-red-500/30 rounded-[35px] hover:bg-red-600 hover:text-white transition-all shadow-xl"
                   >
-                    <Trash2 className="w-6 h-6" />
+                    <Trash2 className="w-8 h-8" />
                   </button>
                 </div>
               )}
             </div>
 
-            <div className="bg-black/30 border border-white/5 rounded-[32px] p-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-teal-500" /> Direcionamento de Acessos (SQUAD LEAD)
+            <div className="bg-black/60 border border-white/5 rounded-[55px] p-12 space-y-10 shadow-inner">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+                <label className="text-[12px] font-black text-gray-600 uppercase tracking-[0.4em] flex items-center gap-4">
+                  <ShieldCheck className="w-6 h-6 text-teal-500" /> DIRECIONAMENTO HIERÁRQUICO (RBAC)
                 </label>
-                <span className="text-[9px] text-gray-700 font-bold uppercase italic">Controle de visualização das pastas no Drive</span>
+                <span className="text-[10px] text-teal-900/40 font-bold uppercase italic tracking-[0.2em]">Configurações de Acesso Individual por Membro</span>
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
                 {team.map(user => {
                   const isAssigned = client.assignedUserIds?.includes(user.id);
                   return (
@@ -171,21 +192,21 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
                         const next = isAssigned ? current.filter(id => id !== user.id) : [...current, user.id];
                         onAssignUsers(client.id, next);
                       }}
-                      className={`flex flex-col items-start p-4 rounded-2xl border transition-all text-left relative overflow-hidden group ${
+                      className={`flex flex-col items-start p-7 rounded-[32px] border transition-all text-left relative overflow-hidden group/btn ${
                         isAssigned 
-                        ? 'bg-teal-500/10 border-teal-500 shadow-[inset_0_0_20px_rgba(20,184,166,0.1)]' 
-                        : 'bg-white/[0.02] border-white/5 hover:border-white/20'
-                      } ${!isCEO ? 'cursor-default' : 'hover:scale-[1.02] active:scale-95'}`}
+                        ? 'bg-teal-500/15 border-teal-500/60 shadow-[0_15px_30px_rgba(20,184,166,0.1)]' 
+                        : 'bg-white/[0.01] border-white/5 hover:border-white/15'
+                      } ${!isCEO ? 'cursor-default' : 'hover:scale-[1.05] active:scale-95 shadow-2xl'}`}
                     >
                       {isAssigned && (
-                        <div className="absolute top-2 right-2">
-                          <div className="bg-teal-500 rounded-full p-0.5"><X className="w-2 h-2 text-black" /></div>
+                        <div className="absolute top-4 right-4 animate-in zoom-in">
+                          <div className="bg-teal-500 rounded-full p-1.5 shadow-lg shadow-teal-500/40"><X className="w-3 h-3 text-black" /></div>
                         </div>
                       )}
-                      <span className={`text-[11px] font-black uppercase tracking-tighter truncate w-full ${isAssigned ? 'text-teal-400' : 'text-gray-300'}`}>
+                      <span className={`text-[13px] font-black uppercase tracking-tighter truncate w-full mb-1.5 ${isAssigned ? 'text-teal-400' : 'text-gray-400 group-hover/btn:text-white'}`}>
                         {user.name}
                       </span>
-                      <span className={`text-[8px] font-bold uppercase tracking-widest mt-1 ${isAssigned ? 'text-teal-600' : 'text-gray-600'}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-[0.1em] ${isAssigned ? 'text-teal-900' : 'text-gray-800'}`}>
                         {formatRole(user.role)}
                       </span>
                     </button>
@@ -197,13 +218,13 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
         ))}
 
         {filteredClients.length === 0 && (
-          <div className="py-48 flex flex-col items-center justify-center text-center space-y-6 opacity-20">
-            <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center border border-white/10">
-               <Briefcase className="w-10 h-10" />
+          <div className="py-80 flex flex-col items-center justify-center text-center space-y-10 opacity-30 grayscale">
+            <div className="w-40 h-40 bg-white/[0.03] rounded-[50px] flex items-center justify-center border border-white/10 animate-pulse">
+               <Briefcase className="w-20 h-20 text-gray-700" />
             </div>
-            <div>
-              <p className="text-xl font-black uppercase tracking-[0.3em]">Nenhum cliente em {view === 'ACTIVE' ? 'faturamento' : 'pausa'}.</p>
-              <p className="text-xs font-medium uppercase mt-2 italic">O CEO pode adicionar clientes ativos usando o botão superior.</p>
+            <div className="max-w-lg space-y-4">
+              <p className="text-3xl font-black uppercase tracking-[0.5em] text-white">Base de Dados Vazia</p>
+              <p className="text-sm font-medium uppercase italic text-gray-500">O CEO pode admitir novos contratos usando o comando superior à direita.</p>
             </div>
           </div>
         )}
