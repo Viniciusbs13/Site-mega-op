@@ -2,17 +2,17 @@
 import React from 'react';
 import { NAVIGATION_ITEMS } from '../constants';
 import { UserRole, User, DefaultUserRole } from '../types';
-import { X, Shield, Settings, LogOut } from 'lucide-react';
+import { X, Shield, Settings, LogOut, Database, Wifi, WifiOff } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   currentUser: User;
   onLogout: () => void;
+  dbStatus: 'connected' | 'error' | 'syncing';
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser, onLogout }) => {
-  // Fix: Cast item.roles to string[] to allow safe comparison with UserRole (which can be a custom string)
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser, onLogout, dbStatus }) => {
   const filteredNav = NAVIGATION_ITEMS.filter(item => 
     (item.roles as string[]).includes(currentUser.role)
   );
@@ -47,9 +47,29 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser,
 
       <div className="p-4 border-t border-white/5 space-y-6">
         <div className="space-y-3">
-          <div className="flex items-center gap-2 px-2">
-            <Shield className="w-3 h-3 text-[#14b8a6]" />
-            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Sessão Segura</span>
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <Shield className="w-3 h-3 text-[#14b8a6]" />
+              <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Sessão Segura</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {dbStatus === 'connected' ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                  <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">Live Cloud</span>
+                </div>
+              ) : dbStatus === 'syncing' ? (
+                <div className="flex items-center gap-1.5">
+                  <Database className="w-2.5 h-2.5 text-teal-500 animate-spin" />
+                  <span className="text-[8px] font-black text-teal-500 uppercase tracking-widest">Salvando...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <WifiOff className="w-2.5 h-2.5 text-red-500" />
+                  <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Offline</span>
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="bg-[#111] border border-white/5 rounded-2xl p-4">
