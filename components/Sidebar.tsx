@@ -2,7 +2,7 @@
 import React from 'react';
 import { NAVIGATION_ITEMS } from '../constants';
 import { UserRole, User, DefaultUserRole } from '../types';
-import { X, Shield, Settings, LogOut, Database, Wifi, WifiOff } from 'lucide-react';
+import { X, Shield, Settings, LogOut, Database, Wifi, WifiOff, Mail } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -72,15 +72,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser,
             </div>
           </div>
           
-          <div className="bg-[#111] border border-white/5 rounded-2xl p-4">
+          <div className="bg-[#111] border border-white/5 rounded-2xl p-4 space-y-3">
              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#14b8a6]/10 flex items-center justify-center text-[#14b8a6] text-xs font-black border border-[#14b8a6]/20">
+                <div className="w-10 h-10 rounded-xl bg-[#14b8a6]/10 flex items-center justify-center text-[#14b8a6] text-xs font-black border border-[#14b8a6]/20 shrink-0">
                   {currentUser.name[0]}
                 </div>
                 <div className="overflow-hidden">
                   <p className="text-[10px] font-black text-white uppercase truncate">{currentUser.name}</p>
                   <p className="text-[8px] font-bold text-[#14b8a6] uppercase tracking-widest truncate">{currentUser.role.replace('_', ' ')}</p>
                 </div>
+             </div>
+             <div className="pt-2 border-t border-white/5 flex items-center gap-2 text-gray-500">
+                <Mail className="w-3 h-3" />
+                <p className="text-[8px] font-medium truncate italic">{currentUser.email}</p>
              </div>
           </div>
         </div>

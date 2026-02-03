@@ -24,7 +24,6 @@ const TeamView: React.FC<TeamViewProps> = ({
   const [newRoleName, setNewRoleName] = useState('');
 
   const isCEO = currentUser.role === DefaultUserRole.CEO;
-  const pendingUsers = team.filter(u => !u.isApproved);
   const activeTeam = team.filter(u => u.isApproved);
 
   const handleAddMember = (e: React.FormEvent) => {
@@ -69,54 +68,12 @@ const TeamView: React.FC<TeamViewProps> = ({
         )}
       </header>
 
-      {/* SEÇÃO DE APROVAÇÕES (EXCLUSIVO CEO) */}
-      {isCEO && pendingUsers.length > 0 && (
-        <section className="space-y-6 animate-in slide-in-from-top-4">
-          <div className="flex items-center gap-3 px-4">
-             <AlertCircle className="w-5 h-5 text-amber-500" />
-             <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Solicitações Pendentes ({pendingUsers.length})</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             {pendingUsers.map(user => (
-               <div key={user.id} className="bg-amber-500/5 border border-amber-500/20 rounded-[32px] p-6 flex items-center justify-between group hover:bg-amber-500/10 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 font-black">
-                      {user.name[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-white uppercase">{user.name}</p>
-                      <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Solicitou: {user.role.replace('_', ' ')}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => onToggleActive(user.id)}
-                      className="bg-green-500 p-3 rounded-xl text-black hover:scale-110 transition-transform"
-                      title="Aprovar Usuário"
-                    >
-                      <UserCheck className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => onRemoveMember(user.id)}
-                      className="bg-white/5 p-3 rounded-xl text-red-500 hover:bg-red-500/20 transition-all"
-                      title="Recusar"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-               </div>
-             ))}
-          </div>
-        </section>
-      )}
-
-      {/* LISTA DE EQUIPE ATIVA */}
       <div className="space-y-6">
-        <h3 className="text-xs font-black text-gray-500 uppercase tracking-[0.2em] px-4">Membros Ativos</h3>
+        <h3 className="text-xs font-black text-gray-500 uppercase tracking-[0.2em] px-4">Membros do Sistema</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {activeTeam.map((member) => (
             <div key={member.id} className={`bg-[#111] border rounded-[40px] p-8 transition-all group relative overflow-hidden flex flex-col ${!member.isActive ? 'opacity-40 grayscale' : 'border-white/5 hover:border-[#14b8a6]/20'}`}>
-              <div className="flex items-start justify-between mb-8">
+              <div className="flex items-start justify-between mb-6">
                 <div className="flex items-center gap-4">
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border ${member.isActive ? 'bg-teal-500/10 border-teal-500/20 text-teal-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
                     <span className="text-xl font-black">{member.name[0]}</span>
@@ -148,8 +105,13 @@ const TeamView: React.FC<TeamViewProps> = ({
               </div>
 
               <div className="space-y-4">
+                <div className="bg-black/40 rounded-2xl p-4 border border-white/5 flex items-center gap-3">
+                  <Mail className="w-4 h-4 text-gray-600" />
+                  <p className="text-[10px] font-medium text-gray-400 truncate">{member.email || 'Sem e-mail'}</p>
+                </div>
+
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2"><ShieldCheck className="w-3 h-3" /> Nível Operacional</label>
+                  <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest flex items-center gap-2 px-2"><ShieldCheck className="w-3 h-3" /> Nível Operacional</label>
                   {isCEO ? (
                     <select 
                       value={member.role}
@@ -172,7 +134,6 @@ const TeamView: React.FC<TeamViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL ADICIONAR DIRETO */}
       {isAddingMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <form onSubmit={handleAddMember} className="bg-[#111] border border-white/10 p-10 rounded-[48px] w-full max-w-md space-y-6 shadow-2xl relative">
@@ -181,7 +142,7 @@ const TeamView: React.FC<TeamViewProps> = ({
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-500 uppercase">Nome do Colaborador</label>
-                <input required value={newName} onChange={e => setNewName(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-[#14b8a6]" placeholder="Ex: Lucas Silva" />
+                <input required type="text" value={newName} onChange={e => setNewName(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-[#14b8a6]" placeholder="Ex: Lucas Silva" />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-500 uppercase">Cargo Definido</label>
@@ -195,7 +156,6 @@ const TeamView: React.FC<TeamViewProps> = ({
         </div>
       )}
 
-      {/* MODAL NOVA FUNÇÃO */}
       {isAddingRole && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <form onSubmit={handleAddRole} className="bg-[#111] border border-white/10 p-10 rounded-[48px] w-full max-w-md space-y-6 shadow-2xl relative">
@@ -204,7 +164,7 @@ const TeamView: React.FC<TeamViewProps> = ({
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-500 uppercase">Nome da Função</label>
-                <input required value={newRoleName} onChange={e => setNewRoleName(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-purple-500" placeholder="Ex: Designer Sênior" />
+                <input required type="text" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-white outline-none focus:border-purple-500" placeholder="Ex: Designer Sênior" />
               </div>
             </div>
             <button type="submit" className="w-full bg-purple-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:scale-[1.02] transition-all">ESTABELECER FUNÇÃO</button>
