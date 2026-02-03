@@ -26,10 +26,8 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
-  // DRIVE FILTERS - Removido ownerId para permitir que o CEO veja tudo no workspace compartilhado
   const currentItems = drive.filter(item => item.parentId === currentDrivePath);
   
-  // Inicializa dados da planilha ao abrir arquivo
   useEffect(() => {
     if (editingFile) {
       try {
@@ -51,7 +49,6 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
     } else break;
   }
 
-  // --- ACTIONS ---
   const handleCreateFolder = () => {
     const name = prompt('Nome da Pasta:');
     if (!name) return;
@@ -103,7 +100,6 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
     setEditingFile(null);
   };
 
-  // --- SHEET LOGIC ---
   const updateCell = (r: number, c: number, val: string) => {
     const newData = sheetData.map((row, ri) => 
       ri === r ? row.map((cell, ci) => ci === c ? val : cell) : row
@@ -122,7 +118,6 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
     setSheetData(sheetData.map(row => row.filter((_, i) => i !== idx)));
   };
 
-  // --- DRAG AND DROP ---
   const handleDragStart = (e: React.DragEvent, id: string) => {
     setDraggedItemId(id);
     e.dataTransfer.setData('text/plain', id);
@@ -141,7 +136,8 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
 
   const getColLetter = (n: number) => String.fromCharCode(65 + n);
 
-  const myClients = clients.filter(c => c.managerId === currentUser.id && !c.isPaused);
+  // CORREÇÃO: Visibilidade dos clientes para o gestor
+  const myClients = clients.filter(c => !c.isPaused);
   const myTasks = tasks.filter(t => t.assignedTo === currentUser.id || t.assignedTo === 'ALL');
 
   return (
@@ -153,7 +149,6 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
         <p className="text-gray-400 font-medium">Gestão estratégica e organização de dados em tempo real.</p>
       </header>
 
-      {/* --- DRIVE SECTION --- */}
       <section className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-4">
@@ -252,100 +247,10 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
                   </span>
                 </div>
               ))}
-
-              {currentItems.length === 0 && !currentDrivePath && (
-                <div className="col-span-full py-32 text-center opacity-20 italic flex flex-col items-center gap-6">
-                  <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center">
-                    <FolderOpen className="w-8 h-8" />
-                  </div>
-                  <p className="text-xs font-black uppercase tracking-[0.5em]">DRIVE VAZIO</p>
-                </div>
-              )}
            </div>
         </div>
       </section>
 
-      {/* EDITOR DE PLANILHA (ÔMEGA SHEETS) */}
-      {editingFile && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-3xl p-6 animate-in fade-in zoom-in duration-300">
-           <div className="w-full max-w-[95%] bg-[#0a0a0a] border border-white/10 rounded-[48px] overflow-hidden flex flex-col shadow-[0_50px_100px_rgba(0,0,0,0.9)] h-[90vh]">
-              
-              <div className="p-6 px-10 bg-black/40 border-b border-white/5 flex items-center justify-between">
-                 <div className="flex items-center gap-6">
-                   <div className="w-10 h-10 bg-teal-500/10 rounded-xl flex items-center justify-center border border-teal-500/20">
-                     <TableIcon className="w-5 h-5 text-teal-400" />
-                   </div>
-                   <div>
-                     <h3 className="text-lg font-black text-white italic uppercase tracking-tighter">{editingFile.name}</h3>
-                     <p className="text-[9px] text-gray-600 font-black uppercase tracking-widest">Planilha Corporativa • Ômega Workspace</p>
-                   </div>
-                 </div>
-                 
-                 <div className="flex items-center gap-4 bg-white/5 p-2 rounded-2xl border border-white/5">
-                    <button onClick={addRow} className="flex items-center gap-1 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[9px] font-black text-gray-300 uppercase transition-all">
-                      <Plus className="w-3 h-3" /> Linha
-                    </button>
-                    <button onClick={addCol} className="flex items-center gap-1 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[9px] font-black text-gray-300 uppercase transition-all">
-                      <Plus className="w-3 h-3" /> Coluna
-                    </button>
-                    <div className="w-px h-6 bg-white/10 mx-2"></div>
-                    <button onClick={handleSaveSheet} className="flex items-center gap-2 px-8 py-2.5 bg-[#14b8a6] text-black font-black uppercase text-[9px] tracking-widest rounded-xl shadow-xl shadow-teal-500/20 hover:scale-105 transition-all">
-                      <Save className="w-4 h-4" /> SALVAR & SAIR
-                    </button>
-                    <button onClick={() => setEditingFile(null)} className="p-2.5 text-gray-500 hover:text-white transition-colors bg-white/5 rounded-xl">
-                      <X className="w-4 h-4" />
-                    </button>
-                 </div>
-              </div>
-
-              <div className="flex-1 overflow-auto bg-[#111] custom-scrollbar p-6">
-                 <table className="w-full border-collapse bg-black/40 rounded-xl overflow-hidden min-w-[1000px]">
-                   <thead>
-                     <tr>
-                       <th className="w-12 bg-black border border-white/10 text-[10px] text-gray-600 font-black p-2">#</th>
-                       {sheetData[0]?.map((_, i) => (
-                         <th key={i} className="bg-black border border-white/10 text-[10px] text-gray-400 font-black p-2 relative group min-w-[150px]">
-                           {getColLetter(i)}
-                           <button onClick={() => removeCol(i)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 hover:scale-125 transition-all bg-black/80 rounded">
-                             <Minus className="w-3 h-3" />
-                           </button>
-                         </th>
-                       ))}
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {sheetData.map((row, rIdx) => (
-                       <tr key={rIdx}>
-                         <td className="w-12 bg-black border border-white/10 text-[10px] text-gray-600 font-black text-center p-2 relative group">
-                           {rIdx + 1}
-                           <button onClick={() => removeRow(rIdx)} className="absolute left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-red-500 hover:scale-125 transition-all bg-black/80 rounded">
-                             <Minus className="w-3 h-3" />
-                           </button>
-                         </td>
-                         {row.map((cell, cIdx) => (
-                           <td key={cIdx} className="border border-white/5 p-0 bg-transparent">
-                             <input 
-                               value={cell} 
-                               onChange={(e) => updateCell(rIdx, cIdx, e.target.value)}
-                               className="w-full h-full bg-transparent text-gray-300 text-xs p-3 outline-none focus:bg-white/[0.03] focus:text-teal-400 transition-all font-medium border-none"
-                               placeholder="..."
-                             />
-                           </td>
-                         ))}
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-              </div>
-              <footer className="p-4 bg-black/20 border-t border-white/5 px-10 flex justify-between">
-                <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Linhas: {sheetData.length} | Colunas: {sheetData[0]?.length || 0}</p>
-                <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Dica: Suas planilhas são salvas automaticamente na nuvem Ômega.</p>
-              </footer>
-           </div>
-        </div>
-      )}
-
-      {/* --- TASK & CLIENT SECTION --- */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-4 space-y-6">
           <div className="flex items-center justify-between px-4">

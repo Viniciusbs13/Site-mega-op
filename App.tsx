@@ -197,6 +197,14 @@ const App: React.FC = () => {
   const currentData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
 
   const mySquadIds = currentData.squads?.filter(s => s.memberIds.includes(currentUser?.id || '')).map(s => s.id) || [];
+  
+  // FILTRO CORRIGIDO: Agora os gestores vêem clientes onde seu ID está na lista assignedUserIds
+  const myClientsForUser = currentData.clients.filter(c => 
+    currentUser?.role === DefaultUserRole.CEO || 
+    currentUser?.role === DefaultUserRole.SALES || 
+    c.assignedUserIds?.includes(currentUser?.id || '')
+  );
+
   const filteredTasksForUser = currentData.tasks.filter(t => 
     currentUser?.role === DefaultUserRole.CEO || 
     t.assignedTo === 'ALL' || 
@@ -213,16 +221,11 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (!currentUser) return null;
     switch (activeTab) {
-      case 'dashboard': return <Dashboard clients={currentData.clients.filter(c => !c.isPaused)} tasks={filteredTasksForUser} currentUser={currentUser} currentMonth={selectedMonth} months={MONTHS.map(m => `${m} ${currentYear}`)} onMonthChange={setSelectedMonth} />;
+      case 'dashboard': return <Dashboard clients={myClientsForUser.filter(c => !c.isPaused)} tasks={filteredTasksForUser} currentUser={currentUser} currentMonth={selectedMonth} months={MONTHS.map(m => `${m} ${currentYear}`)} onMonthChange={setSelectedMonth} />;
       case 'squads-mgmt': return <SquadsTabView squads={currentData.squads || []} team={team} currentUser={currentUser} onUpdateSquads={handleUpdateSquads} onAddTask={t => updateCurrentMonthData({ tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] })} />;
       case 'checklists': return <ChecklistView tasks={filteredTasksForUser} currentUser={currentUser} onAddTask={t => updateCurrentMonthData({ tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentData.tasks] })} onRemoveTask={id => updateCurrentMonthData({ tasks: currentData.tasks.filter(t => t.id !== id) })} onToggleTask={onToggleTask} />;
       case 'my-workspace': {
-        const visibleClients = currentData.clients.filter(c => 
-          currentUser.role === DefaultUserRole.CEO || 
-          currentUser.role === DefaultUserRole.SALES || 
-          c.assignedUserIds?.includes(currentUser.id)
-        );
-        return <ManagerWorkspace managerId={currentUser.id} clients={visibleClients} tasks={filteredTasksForUser} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })} onToggleTask={onToggleTask} onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} onUpdateFolder={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) })} />;
+        return <ManagerWorkspace managerId={currentUser.id} clients={myClientsForUser} tasks={filteredTasksForUser} currentUser={currentUser} drive={currentData.drive || []} onUpdateDrive={(newItems) => updateCurrentMonthData({ drive: newItems })} onToggleTask={onToggleTask} onUpdateNotes={(id, n) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, notes: n } : c) })} onUpdateStatusFlag={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) })} onUpdateFolder={(id, f) => updateCurrentMonthData({ clients: currentData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) })} />;
       }
       case 'commercial': return <SalesView goal={currentData.salesGoal} team={team} clients={currentData.clients} currentUser={currentUser} onUpdateGoal={u => updateCurrentMonthData({ salesGoal: { ...currentData.salesGoal, ...u } })} onRegisterSale={(uid, val, cname) => { 
         const newTeam = team.map(usr => usr.id === uid ? { ...usr, salesVolume: (usr.salesVolume || 0) + val } : usr);
@@ -299,7 +302,7 @@ const App: React.FC = () => {
         onLogout={() => supabase.auth.signOut()} 
         dbStatus={dbStatus} 
         theme={theme} 
-        notificationCount={notifications[currentUser.id] || 0} 
+        notificationCount={notifications[currentUser?.id || ''] || 0} 
       />
       <main className="flex-1 h-full overflow-hidden relative">
         <div className="h-full overflow-y-auto p-12 custom-scrollbar">{renderContent()}</div>

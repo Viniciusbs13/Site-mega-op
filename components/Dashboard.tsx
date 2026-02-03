@@ -1,6 +1,5 @@
 
 import React from 'react';
-// Import DefaultUserRole for enum value access
 import { Client, Task, User, DefaultUserRole } from '../types';
 import { LayoutDashboard, ArrowRight, ChevronRight, FileText, Clock, AlertTriangle, ShieldAlert, Calendar as CalendarIcon, Zap } from 'lucide-react';
 
@@ -16,8 +15,8 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, currentMonth, onMonthChange, months }) => {
   const isCEO = currentUser.role === DefaultUserRole.CEO;
   
-  // Filtra dados se não for CEO
-  const filteredClients = isCEO ? clients : clients.filter(c => c.managerId === currentUser.id);
+  // CORREÇÃO: O filtro agora verifica se o ID do usuário está no array de direcionamento do cliente
+  const filteredClients = isCEO ? clients : clients.filter(c => c.assignedUserIds?.includes(currentUser.id));
   const filteredTasks = isCEO ? tasks : tasks.filter(t => t.assignedTo === currentUser.id || t.assignedTo === 'ALL');
 
   const completedTasks = filteredTasks.filter(t => t.status === 'COMPLETED').length;
@@ -29,7 +28,6 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
     return 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]';
   };
 
-  // Lógica do Calendário
   const today = new Date();
   const currentDay = today.getDate();
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -111,9 +109,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
           </div>
         </div>
 
-        {/* COLUNA DO CALENDÁRIO & MOTIVAÇÃO */}
         <div className="xl:col-span-1 space-y-6 flex flex-col">
-          {/* FRASE MOTIVACIONAL */}
           <div className="bg-[#111] border border-white/5 rounded-[32px] p-8 flex flex-col justify-center min-h-[140px] relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
               <Zap className="w-12 h-12 text-teal-500" />
@@ -124,7 +120,6 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
             </h3>
           </div>
 
-          {/* CALENDÁRIO */}
           <div className="bg-[#111] border border-white/5 rounded-[32px] p-8 flex-1 flex flex-col shadow-2xl">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
@@ -155,26 +150,11 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
                 </div>
               ))}
             </div>
-
-            <div className="mt-8 pt-6 border-t border-white/5">
-               <div className="flex items-center justify-between">
-                 <div className="space-y-1">
-                   <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Status da Operação</p>
-                   <p className="text-[10px] font-bold text-green-500 uppercase tracking-tighter flex items-center gap-1">
-                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Sistema Ativo
-                   </p>
-                 </div>
-                 <div className="text-right">
-                    <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Check-in de Hoje</p>
-                    <p className="text-[10px] font-black text-white uppercase tracking-tighter">Realizado</p>
-                 </div>
-               </div>
-            </div>
           </div>
         </div>
       </div>
 
-      {isCEO ? (
+      {isCEO && (
         <section className="space-y-6">
           <div className="flex items-center justify-between px-2">
             <h4 className="flex items-center gap-3 text-lg font-bold text-white uppercase tracking-tighter italic">
@@ -189,7 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
                     <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">Status</th>
                     <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">Cliente</th>
                     <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">Progresso</th>
-                    <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">Gestor</th>
+                    <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest">Time Alocado</th>
                     <th className="px-8 py-6 text-[10px] font-black text-gray-500 uppercase tracking-widest text-right">Contrato</th>
                   </tr>
                 </thead>
@@ -208,7 +188,9 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
                           <span className="text-[10px] font-black text-gray-500">{client.progress}%</span>
                         </div>
                       </td>
-                      <td className="px-8 py-6 text-[10px] font-bold text-gray-400">{client.managerId || 'PENDENTE'}</td>
+                      <td className="px-8 py-6 text-[10px] font-bold text-gray-400">
+                        {client.assignedUserIds?.length || 0} Membros
+                      </td>
                       <td className="px-8 py-6 text-right font-black text-white text-sm">R$ {client.contractValue.toLocaleString()}</td>
                     </tr>
                   ))}
@@ -217,14 +199,6 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, tasks, currentUser, curr
             </div>
           </div>
         </section>
-      ) : (
-        <div className="bg-[#111] border border-white/5 p-12 rounded-[32px] flex flex-col items-center justify-center text-center space-y-4">
-           <ShieldAlert className="w-12 h-12 text-gray-700" />
-           <div>
-             <h4 className="text-lg font-bold text-white uppercase italic">Dados Confidenciais Ocultos</h4>
-             <p className="text-xs text-gray-500 max-w-sm mx-auto">Valores contratuais e redflags globais são restritos ao nível de diretoria. Foque em seus resultados individuais.</p>
-           </div>
-        </div>
       )}
     </div>
   );
