@@ -56,8 +56,8 @@ export interface Client {
   industry: string;
   health: ClientHealth | string;
   progress: number;
-  assignedUserIds: string[]; // Alterado para suportar múltiplos colaboradores
-  managerId?: string; // Mantido por compatibilidade legada se necessário
+  assignedUserIds: string[];
+  managerId?: string; 
   salesId?: string;
   closingNotes?: string;
   contractValue: number;
@@ -72,6 +72,7 @@ export interface Squad {
   name: string;
   memberIds: string[];
   description?: string;
+  messages?: ChatMessage[]; // Chat específico do Squad
 }
 
 export interface Task {
@@ -109,7 +110,7 @@ export interface MonthlyData {
     chatMessages?: ChatMessage[];
     drive?: DriveItem[];
     wiki?: DriveItem[];
-    squads?: Squad[]; // Novo campo para squads
+    squads?: Squad[];
   };
 }
 
@@ -117,4 +118,5 @@ export interface AppState {
   team: User[];
   availableRoles: string[];
   db: MonthlyData;
+  notifications?: { [userId: string]: number }; // Contador de notificações não lidas
 }

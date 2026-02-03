@@ -2,18 +2,21 @@
 import React from 'react';
 import { NAVIGATION_ITEMS } from '../constants';
 import { UserRole, User, DefaultUserRole } from '../types';
-import { X, Shield, Settings, LogOut, Database, Wifi, WifiOff, Mail } from 'lucide-react';
+import { X, Shield, Settings, LogOut, Database, Wifi, WifiOff, Mail, Bell } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  currentUser: User;
+  currentUser: User | null;
   onLogout: () => void;
   dbStatus: 'connected' | 'error' | 'syncing';
   theme?: 'dark' | 'light';
+  notificationCount?: number;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser, onLogout, dbStatus, theme = 'dark' }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser, onLogout, dbStatus, theme = 'dark', notificationCount = 0 }) => {
+  if (!currentUser) return null;
+
   const filteredNav = NAVIGATION_ITEMS.filter(item => 
     (item.roles as string[]).includes(currentUser.role)
   );
@@ -29,6 +32,15 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser,
           </div>
           <h1 className={`text-xl font-black tracking-tighter ${isDark ? 'text-white' : 'text-black'} uppercase italic`}>OMEGA</h1>
         </div>
+        
+        {notificationCount > 0 && (
+          <div className="relative group cursor-pointer" title={`${notificationCount} novas atualizações`}>
+            <Bell className="w-5 h-5 text-teal-500 animate-bell" />
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-[#0a0a0a]">
+              {notificationCount}
+            </span>
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">
@@ -82,7 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, currentUser,
                 </div>
                 <div className="overflow-hidden">
                   <p className={`text-[11px] font-black ${isDark ? 'text-white' : 'text-gray-800'} uppercase truncate italic tracking-tighter`}>{currentUser.name}</p>
-                  <p className="text-[8px] font-bold text-[#14b8a6] uppercase tracking-[0.2em] truncate">{currentUser.role.replace('_', ' ')}</p>
+                  <p className="text-[8px] font-bold text-[#14b8a6] uppercase tracking-[0.2em] truncate">{(currentUser.role || '').replace('_', ' ')}</p>
                 </div>
              </div>
              <div className={`pt-2 border-t ${isDark ? 'border-white/5' : 'border-gray-200'} flex items-center gap-2 text-gray-500`}>
