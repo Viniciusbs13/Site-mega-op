@@ -19,6 +19,9 @@ export enum ClientHealth {
 
 export type ClientStatus = 'GREEN' | 'YELLOW' | 'RED';
 
+// Novo tipo para distinguir modelos comerciais
+export type ServiceType = 'PERPETUAL' | 'ONE_TIME';
+
 export interface DriveItem {
   id: string;
   name: string;
@@ -43,12 +46,19 @@ export interface User {
   salesVolume?: number;
   personalGoal?: number;
   superGoal?: number;
+  efficiencyScore?: number;
 }
 
 export interface ClientFolder {
   briefing?: string;
   accessLinks?: string;
   operationalHistory?: string;
+}
+
+export interface PlanItem {
+  id: string;
+  label: string;
+  isDone: boolean;
 }
 
 export interface Client {
@@ -62,11 +72,12 @@ export interface Client {
   salesId?: string;
   closingNotes?: string;
   contractValue: number;
+  serviceType: ServiceType; // Novo campo
   notes?: string;
   statusFlag: ClientStatus;
   folder?: ClientFolder;
   isPaused?: boolean;
-  planItems?: string[];
+  planItems?: PlanItem[];
 }
 
 export interface Squad {
