@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Client, User, DefaultUserRole, ClientStatus, ClientHealth } from '../types';
-import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck, Plus, Target, DollarSign, Filter, Building2, CheckCircle2, Crown, Zap } from 'lucide-react';
+import { Briefcase, TrendingUp, Pause, Play, Trash2, ShieldAlert, UserPlus, X, Users, ShieldCheck, Plus, Target, DollarSign, Filter, Building2, CheckCircle2, Crown, Zap, ListChecks, Edit3, Save } from 'lucide-react';
 
 interface SquadsViewProps {
   clients: Client[];
@@ -11,12 +11,15 @@ interface SquadsViewProps {
   onAddClient: (client: Client) => void;
   onRemoveClient: (clientId: string) => void;
   onTogglePauseClient: (clientId: string) => void;
+  onUpdatePlan: (clientId: string, planItems: string[]) => void;
 }
 
-const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onAssignUsers, onAddClient, onRemoveClient, onTogglePauseClient }) => {
+const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onAssignUsers, onAddClient, onRemoveClient, onTogglePauseClient, onUpdatePlan }) => {
   const [view, setView] = useState<'ACTIVE' | 'PAUSED'>('ACTIVE');
   const [isAddingClient, setIsAddingClient] = useState(false);
   const [newClient, setNewClient] = useState({ name: '', industry: '', contractValue: '' });
+  const [editingPlanClientId, setEditingPlanClientId] = useState<string | null>(null);
+  const [tempPlanText, setTempPlanText] = useState('');
   
   const isCEO = currentUser.role === DefaultUserRole.CEO;
   const filteredClients = clients.filter(c => view === 'ACTIVE' ? !c.isPaused : c.isPaused);
@@ -39,12 +42,24 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
       contractValue: parseFloat(newClient.contractValue),
       statusFlag: 'GREEN' as ClientStatus,
       folder: {},
-      isPaused: false
+      isPaused: false,
+      planItems: []
     };
 
     onAddClient(client);
     setNewClient({ name: '', industry: '', contractValue: '' });
     setIsAddingClient(false);
+  };
+
+  const startEditingPlan = (client: Client) => {
+    setEditingPlanClientId(client.id);
+    setTempPlanText(client.planItems?.join('\n') || '');
+  };
+
+  const savePlan = (clientId: string) => {
+    const items = tempPlanText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    onUpdatePlan(clientId, items);
+    setEditingPlanClientId(null);
   };
 
   return (
@@ -146,9 +161,6 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
                   <span className="flex items-center gap-4 text-gray-400">
                     <Building2 className="w-5 h-5 text-teal-600"/> {client.industry}
                   </span>
-                  <span className="flex items-center gap-4 text-gray-400">
-                    <Users className="w-5 h-5 text-teal-600"/> {client.assignedUserIds?.length || 0} GESTORES VINCULADOS
-                  </span>
                 </div>
               </div>
 
@@ -172,46 +184,87 @@ const SquadsView: React.FC<SquadsViewProps> = ({ clients, currentUser, team, onA
               )}
             </div>
 
-            <div className="bg-black/60 border border-white/5 rounded-[55px] p-12 space-y-10 shadow-inner">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
-                <label className="text-[12px] font-black text-gray-600 uppercase tracking-[0.4em] flex items-center gap-4">
-                  <ShieldCheck className="w-6 h-6 text-teal-500" /> DIRECIONAMENTO HIERÁRQUICO (RBAC)
-                </label>
-                <span className="text-[10px] text-teal-900/40 font-bold uppercase italic tracking-[0.2em]">Configurações de Acesso Individual por Membro</span>
-              </div>
-              
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-                {team.map(user => {
-                  const isAssigned = client.assignedUserIds?.includes(user.id);
-                  return (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
+              {/* ESCOPO DO PLANO */}
+              <div className="bg-black/60 border border-teal-500/10 rounded-[55px] p-12 space-y-8 shadow-inner relative overflow-hidden group/plan">
+                <div className="flex items-center justify-between">
+                  <label className="text-[12px] font-black text-teal-500 uppercase tracking-[0.4em] flex items-center gap-4">
+                    <ListChecks className="w-6 h-6" /> ESCOPO DO PLANO PERSONALIZADO
+                  </label>
+                  {(isCEO || currentUser.role === DefaultUserRole.MANAGER) && (
                     <button 
-                      key={user.id}
-                      disabled={!isCEO}
-                      onClick={() => {
-                        const current = client.assignedUserIds || [];
-                        const next = isAssigned ? current.filter(id => id !== user.id) : [...current, user.id];
-                        onAssignUsers(client.id, next);
-                      }}
-                      className={`flex flex-col items-start p-7 rounded-[32px] border transition-all text-left relative overflow-hidden group/btn ${
-                        isAssigned 
-                        ? 'bg-teal-500/15 border-teal-500/60 shadow-[0_15px_30px_rgba(20,184,166,0.1)]' 
-                        : 'bg-white/[0.01] border-white/5 hover:border-white/15'
-                      } ${!isCEO ? 'cursor-default' : 'hover:scale-[1.05] active:scale-95 shadow-2xl'}`}
+                      onClick={() => editingPlanClientId === client.id ? savePlan(client.id) : startEditingPlan(client)}
+                      className={`p-4 rounded-2xl transition-all ${editingPlanClientId === client.id ? 'bg-teal-500 text-black' : 'bg-white/5 text-gray-500 hover:text-white'}`}
                     >
-                      {isAssigned && (
-                        <div className="absolute top-4 right-4 animate-in zoom-in">
-                          <div className="bg-teal-500 rounded-full p-1.5 shadow-lg shadow-teal-500/40"><X className="w-3 h-3 text-black" /></div>
-                        </div>
-                      )}
-                      <span className={`text-[13px] font-black uppercase tracking-tighter truncate w-full mb-1.5 ${isAssigned ? 'text-teal-400' : 'text-gray-400 group-hover/btn:text-white'}`}>
-                        {user.name}
-                      </span>
-                      <span className={`text-[10px] font-bold uppercase tracking-[0.1em] ${isAssigned ? 'text-teal-900' : 'text-gray-800'}`}>
-                        {formatRole(user.role)}
-                      </span>
+                      {editingPlanClientId === client.id ? <Save className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
                     </button>
-                  );
-                })}
+                  )}
+                </div>
+
+                {editingPlanClientId === client.id ? (
+                  <textarea 
+                    value={tempPlanText}
+                    onChange={(e) => setTempPlanText(e.target.value)}
+                    className="w-full bg-black border border-teal-500/20 rounded-[30px] p-8 text-white outline-none focus:border-teal-500 min-h-[200px] text-sm font-bold shadow-inner"
+                    placeholder="Liste os entregáveis (um por linha)..."
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {client.planItems && client.planItems.length > 0 ? (
+                      client.planItems.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-4 bg-white/[0.02] border border-white/5 p-5 rounded-[25px] hover:border-teal-500/30 transition-all">
+                          <CheckCircle2 className="w-4 h-4 text-teal-500 shrink-0" />
+                          <span className="text-xs font-black text-gray-300 uppercase tracking-tight">{item}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-gray-700 font-bold uppercase italic p-4">Nenhum item de plano cadastrado para este cliente.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* DIRECIONAMENTO HIERÁRQUICO */}
+              <div className="bg-black/60 border border-white/5 rounded-[55px] p-12 space-y-10 shadow-inner">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+                  <label className="text-[12px] font-black text-gray-600 uppercase tracking-[0.4em] flex items-center gap-4">
+                    <ShieldCheck className="w-6 h-6 text-teal-500" /> DIRECIONAMENTO HIERÁRQUICO (RBAC)
+                  </label>
+                </div>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {team.map(user => {
+                    const isAssigned = client.assignedUserIds?.includes(user.id);
+                    return (
+                      <button 
+                        key={user.id}
+                        disabled={!isCEO}
+                        onClick={() => {
+                          const current = client.assignedUserIds || [];
+                          const next = isAssigned ? current.filter(id => id !== user.id) : [...current, user.id];
+                          onAssignUsers(client.id, next);
+                        }}
+                        className={`flex flex-col items-start p-6 rounded-[30px] border transition-all text-left relative overflow-hidden group/btn ${
+                          isAssigned 
+                          ? 'bg-teal-500/15 border-teal-500/60 shadow-[0_15px_30px_rgba(20,184,166,0.1)]' 
+                          : 'bg-white/[0.01] border-white/5 hover:border-white/15'
+                        } ${!isCEO ? 'cursor-default' : 'hover:scale-[1.05] active:scale-95 shadow-2xl'}`}
+                      >
+                        {isAssigned && (
+                          <div className="absolute top-4 right-4 animate-in zoom-in">
+                            <div className="bg-teal-500 rounded-full p-1.5 shadow-lg shadow-teal-500/40"><X className="w-3 h-3 text-black" /></div>
+                          </div>
+                        )}
+                        <span className={`text-[12px] font-black uppercase tracking-tighter truncate w-full mb-1.5 ${isAssigned ? 'text-teal-400' : 'text-gray-400 group-hover/btn:text-white'}`}>
+                          {user.name}
+                        </span>
+                        <span className={`text-[9px] font-bold uppercase tracking-[0.1em] ${isAssigned ? 'text-teal-900' : 'text-gray-800'}`}>
+                          {formatRole(user.role)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>

@@ -66,6 +66,7 @@ export interface Client {
   statusFlag: ClientStatus;
   folder?: ClientFolder;
   isPaused?: boolean;
+  planItems?: string[];
 }
 
 export interface Squad {

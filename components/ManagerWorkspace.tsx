@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Client, Task, ClientStatus, User, DriveItem } from '../types';
-import { CheckCircle2, Circle, Target, Flag, FolderOpen, Info, Link as LinkIcon, History, ChevronDown, ChevronUp, FileText, FolderPlus, FilePlus, ChevronRight, Trash2, ArrowLeft, Save, X, Plus, Minus, Table as TableIcon, FileType } from 'lucide-react';
+import { CheckCircle2, Circle, Target, Flag, FolderOpen, Info, Link as LinkIcon, History, ChevronDown, ChevronUp, FileText, FolderPlus, FilePlus, ChevronRight, Trash2, ArrowLeft, Save, X, Plus, Minus, Table as TableIcon, FileType, ListChecks, Edit3 } from 'lucide-react';
 
 interface ManagerWorkspaceProps {
   managerId: string;
@@ -14,10 +14,11 @@ interface ManagerWorkspaceProps {
   onUpdateNotes: (clientId: string, notes: string) => void;
   onUpdateStatusFlag: (clientId: string, flag: ClientStatus) => void;
   onUpdateFolder: (clientId: string, folder: Partial<Client['folder']>) => void;
+  onUpdatePlan: (clientId: string, planItems: string[]) => void;
 }
 
 const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({ 
-  managerId, clients, tasks, currentUser, drive, onUpdateDrive, onToggleTask, onUpdateNotes, onUpdateStatusFlag, onUpdateFolder 
+  managerId, clients, tasks, currentUser, drive, onUpdateDrive, onToggleTask, onUpdateNotes, onUpdateStatusFlag, onUpdateFolder, onUpdatePlan 
 }) => {
   const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
   const [currentDrivePath, setCurrentDrivePath] = useState<string | null>(null);
@@ -27,6 +28,8 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
   const [docContent, setDocContent] = useState('');
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [editingPlanClientId, setEditingPlanClientId] = useState<string | null>(null);
+  const [tempPlanText, setTempPlanText] = useState('');
 
   const currentItems = drive.filter(item => item.parentId === currentDrivePath);
   
@@ -149,6 +152,17 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
 
   const getColLetter = (n: number) => String.fromCharCode(65 + n);
 
+  const startEditingPlan = (client: Client) => {
+    setEditingPlanClientId(client.id);
+    setTempPlanText(client.planItems?.join('\n') || '');
+  };
+
+  const savePlan = (clientId: string) => {
+    const items = tempPlanText.split('\n').map(i => i.trim()).filter(i => i !== '');
+    onUpdatePlan(clientId, items);
+    setEditingPlanClientId(null);
+  };
+
   const myClients = clients.filter(c => !c.isPaused);
   const myTasks = tasks.filter(t => t.assignedTo === currentUser.id || t.assignedTo === 'ALL');
 
@@ -269,141 +283,7 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
         </div>
       </section>
 
-      {/* Modal de Seleção de Tipo de Arquivo */}
-      {isSelectingFileType && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-6 animate-in fade-in duration-300">
-           <div className="w-full max-w-xl bg-[#0a0a0a] border border-white/10 rounded-[48px] p-10 space-y-8 shadow-2xl relative">
-              <button onClick={() => setIsSelectingFileType(false)} className="absolute right-8 top-8 text-gray-500 hover:text-white"><X /></button>
-              <div className="text-center">
-                <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Criar Novo Arquivo</h3>
-                <p className="text-xs text-gray-500 uppercase tracking-widest mt-2">Escolha a ferramenta ideal para sua tarefa</p>
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                <button 
-                  onClick={() => handleCreateFile('SHEET')}
-                  className="flex flex-col items-center gap-6 p-8 rounded-[32px] bg-white/[0.02] border border-white/5 hover:border-teal-500/50 hover:bg-teal-500/5 transition-all group"
-                >
-                  <div className="w-16 h-16 bg-teal-500/10 rounded-2xl flex items-center justify-center border border-teal-500/20 group-hover:scale-110 transition-transform">
-                    <TableIcon className="w-8 h-8 text-teal-500" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-black text-white uppercase italic">Planilha Ômega</p>
-                    <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest mt-1">Cálculos e Listas (Excel)</p>
-                  </div>
-                </button>
-                <button 
-                  onClick={() => handleCreateFile('DOC')}
-                  className="flex flex-col items-center gap-6 p-8 rounded-[32px] bg-white/[0.02] border border-white/5 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group"
-                >
-                  <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
-                    <FileText className="w-8 h-8 text-blue-500" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-black text-white uppercase italic">Documento Ômega</p>
-                    <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest mt-1">Processos e Notas (Word)</p>
-                  </div>
-                </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Editor de Arquivo (Sheets ou Doc) */}
-      {editingFile && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-3xl p-4 md:p-10 animate-in zoom-in duration-300">
-           <div className="w-full h-full max-w-7xl bg-[#0a0a0a] border border-white/10 rounded-[64px] flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden">
-              <header className="p-8 border-b border-white/5 flex items-center justify-between bg-black/40">
-                <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${editingFile.fileType === 'SHEET' ? 'bg-teal-500/10 border-teal-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
-                    {editingFile.fileType === 'SHEET' ? <TableIcon className="w-6 h-6 text-teal-500" /> : <FileText className="w-6 h-6 text-blue-500" />}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">{editingFile.name}</h3>
-                    <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest">
-                      {editingFile.fileType === 'SHEET' ? 'ÔMEGA SHEETS • EDITOR DE DADOS' : 'ÔMEGA DOCS • EDITOR DE TEXTO'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-4">
-                  <button onClick={() => setEditingFile(null)} className="p-3 text-gray-500 hover:text-white transition-colors bg-white/5 rounded-full">
-                    <X className="w-5 h-5" />
-                  </button>
-                  <button onClick={handleSaveFile} className={`flex items-center gap-2 px-10 py-3 rounded-2xl text-[10px] font-black uppercase transition-all shadow-xl ${editingFile.fileType === 'SHEET' ? 'bg-teal-500 text-black shadow-teal-500/20' : 'bg-blue-600 text-white shadow-blue-600/20'}`}>
-                    <Save className="w-4 h-4" /> SALVAR ARQUIVO
-                  </button>
-                </div>
-              </header>
-
-              <div className="flex-1 overflow-auto p-10 bg-[#111]">
-                {editingFile.fileType === 'SHEET' ? (
-                  <div className="space-y-6">
-                    <div className="flex gap-3 mb-4">
-                      <button onClick={addRow} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-[10px] font-black text-gray-400 hover:text-white border border-white/5 rounded-xl uppercase transition-all">
-                        <Plus className="w-3 h-3 text-teal-500" /> Linha
-                      </button>
-                      <button onClick={addCol} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-[10px] font-black text-gray-400 hover:text-white border border-white/5 rounded-xl uppercase transition-all">
-                        <Plus className="w-3 h-3 text-teal-500" /> Coluna
-                      </button>
-                    </div>
-                    <div className="overflow-auto border border-white/5 rounded-2xl shadow-2xl bg-black/40">
-                      <table className="border-collapse">
-                        <thead>
-                          <tr>
-                            <th className="w-12 bg-black/60 border border-white/10 p-2"></th>
-                            {sheetData[0]?.map((_, ci) => (
-                              <th key={ci} className="min-w-[150px] bg-black/60 border border-white/10 p-2 text-[10px] font-black text-gray-600 uppercase tracking-widest relative group/col">
-                                {getColLetter(ci)}
-                                <button onClick={() => removeCol(ci)} className="absolute top-1 right-1 opacity-0 group-hover/col:opacity-100 transition-opacity text-red-500 hover:text-red-400">
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sheetData.map((row, ri) => (
-                            <tr key={ri} className="group/row">
-                              <td className="w-12 bg-black/60 border border-white/10 p-2 text-[10px] font-black text-gray-600 text-center relative">
-                                {ri + 1}
-                                <button onClick={() => removeRow(ri)} className="absolute left-1 top-1 opacity-0 group-hover/row:opacity-100 transition-opacity text-red-500 hover:text-red-400">
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                              </td>
-                              {row.map((cell, ci) => (
-                                <td key={ci} className="border border-white/10 p-0 focus-within:ring-2 ring-teal-500/50">
-                                  <input 
-                                    value={cell} 
-                                    onChange={(e) => updateCell(ri, ci, e.target.value)}
-                                    className="w-full h-full bg-transparent p-3 text-sm text-gray-300 outline-none"
-                                  />
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full h-full max-w-4xl mx-auto flex flex-col space-y-8">
-                     <textarea 
-                        value={docContent}
-                        onChange={(e) => setDocContent(e.target.value)}
-                        placeholder="Inicie sua escrita aqui..."
-                        className="w-full flex-1 bg-transparent text-gray-300 text-lg outline-none resize-none leading-relaxed font-medium placeholder:text-gray-700"
-                        autoFocus
-                     />
-                  </div>
-                )}
-              </div>
-              <footer className="p-4 bg-black/20 border-t border-white/5 text-[8px] font-black text-gray-700 uppercase tracking-[0.5em] text-center">
-                Protocolo de Segurança Ativo • Edição Criptografada
-              </footer>
-           </div>
-        </div>
-      )}
-
-      {/* Grid de Seções (Fila Diária e Squads) mantida conforme original */}
+      {/* Grid de Seções (Fila Diária e Squads) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-4 space-y-6">
           <div className="flex items-center justify-between px-4">
@@ -442,14 +322,49 @@ const ManagerWorkspace: React.FC<ManagerWorkspaceProps> = ({
                 {expandedFolder === client.id && (
                   <div className="p-10 pt-0 border-t border-white/5 grid grid-cols-1 md:grid-cols-2 gap-10 animate-in slide-in-from-top-4">
                     <div className="space-y-6">
+                      {/* ESCOPO DO PLANO */}
+                      <div className="bg-black/40 border border-teal-500/20 rounded-[35px] p-8 space-y-6 shadow-inner relative group/plan">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-black text-teal-500 uppercase flex items-center gap-2">
+                            <ListChecks className="w-4 h-4" /> Escopo do Plano
+                          </label>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); editingPlanClientId === client.id ? savePlan(client.id) : startEditingPlan(client); }}
+                            className={`p-2 rounded-xl transition-all ${editingPlanClientId === client.id ? 'bg-teal-500 text-black' : 'bg-white/5 text-gray-600 hover:text-white'}`}
+                          >
+                            {editingPlanClientId === client.id ? <Save className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        {editingPlanClientId === client.id ? (
+                          <textarea 
+                            value={tempPlanText}
+                            onChange={(e) => setTempPlanText(e.target.value)}
+                            className="w-full bg-black border border-teal-500/30 rounded-2xl p-4 text-xs text-white outline-none focus:border-teal-500 min-h-[120px]"
+                          />
+                        ) : (
+                          <div className="space-y-2">
+                            {client.planItems && client.planItems.length > 0 ? (
+                              client.planItems.map((item, idx) => (
+                                <div key={idx} className="flex items-center gap-3 bg-white/[0.01] p-2 rounded-xl">
+                                  <CheckCircle2 className="w-3 h-3 text-teal-500 shrink-0" />
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">{item}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-[9px] text-gray-700 italic">Sem escopo definido.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       <div className="space-y-3"><label className="text-[10px] font-black text-gray-500 uppercase flex items-center gap-2"><Info className="w-3 h-3 text-blue-400" /> Briefing Estratégico</label>
                         <textarea value={client.folder?.briefing || ''} onChange={(e) => onUpdateFolder(client.id, { briefing: e.target.value })} placeholder="Estratégia central..." className="w-full bg-black border border-white/5 rounded-3xl p-6 text-xs text-gray-400 min-h-[120px] outline-none focus:border-blue-500/30 transition-all resize-none" />
                       </div>
+                    </div>
+                    <div className="space-y-6">
                       <div className="space-y-3"><label className="text-[10px] font-black text-gray-500 uppercase flex items-center gap-2"><LinkIcon className="w-3 h-3 text-purple-400" /> Acessos & Links Rápidos</label>
                         <textarea value={client.folder?.accessLinks || ''} onChange={(e) => onUpdateFolder(client.id, { accessLinks: e.target.value })} placeholder="IDs, Links de Pastas..." className="w-full bg-black border border-white/10 rounded-3xl p-6 text-xs text-gray-400 min-h-[100px] outline-none focus:border-purple-500/30 transition-all resize-none" />
                       </div>
-                    </div>
-                    <div className="space-y-6">
                       <div className="space-y-3"><label className="text-[10px] font-black text-gray-500 uppercase flex items-center gap-2"><History className="w-3 h-3 text-teal-400" /> Log de Atividades</label>
                         <textarea value={client.folder?.operationalHistory || ''} onChange={(e) => onUpdateFolder(client.id, { operationalHistory: e.target.value })} placeholder="O que foi feito recentemente..." className="w-full bg-black border border-white/10 rounded-3xl p-6 text-xs text-gray-400 min-h-[120px] outline-none focus:border-teal-500/30 transition-all resize-none" />
                       </div>

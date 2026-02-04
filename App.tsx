@@ -172,10 +172,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegisterSale = (uid: string, val: number, cname: string) => {
+  const handleRegisterSale = (uid: string, val: number, cname: string, planItems: string[] = []) => {
     const seller = team.find(u => u.id === uid);
     const updatedTeam = team.map(u => u.id === uid ? { ...u, salesVolume: (u.salesVolume || 0) + val } : u);
-    const currentMonthData = db[selectedMonth];
+    const currentMonthData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
     const newClient: Client = { 
       id: Math.random().toString(36).substr(2,9), 
       name: cname, 
@@ -186,7 +186,8 @@ const App: React.FC = () => {
       salesId: uid, 
       contractValue: val, 
       statusFlag: 'GREEN', 
-      folder: {} 
+      folder: {},
+      planItems: planItems
     };
     const updatedDb = { 
       ...db, 
@@ -208,6 +209,18 @@ const App: React.FC = () => {
     lastHandledSaleId.current = saleId;
     triggerCelebration(sellerName, val);
     updateStateAndSync(updatedTeam, updatedDb, notifications, saleSignal);
+  };
+
+  const handleUpdateClientPlan = (clientId: string, planItems: string[]) => {
+    const currentMonthData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
+    const updatedDb = {
+      ...db,
+      [selectedMonth]: {
+        ...currentMonthData,
+        clients: currentMonthData.clients.map(c => c.id === clientId ? { ...c, planItems } : c)
+      }
+    };
+    updateStateAndSync(team, updatedDb, notifications);
   };
 
   if (isLoading) return <div className="h-screen w-full bg-[#0a0a0a] flex flex-col items-center justify-center space-y-6"><div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div><p className="text-[10px] font-black text-teal-500 uppercase tracking-widest animate-pulse">Sincronizando Ômega Workspace...</p></div>;
@@ -291,6 +304,7 @@ const App: React.FC = () => {
     );
   }
 
+  // Filtered data calculation moved below the authentication check
   const currentMonthData = db[selectedMonth] || { clients: [], tasks: [], salesGoal: { monthlyTarget: 100000, monthlySuperTarget: 150000, currentValue: 0, totalSales: 0, contractFormUrl: '' }, chatMessages: [], drive: [], wiki: [], squads: [] };
   const myClients = currentMonthData.clients.filter(c => currentUser.role === DefaultUserRole.CEO || currentUser.role === DefaultUserRole.SALES || c.assignedUserIds?.includes(currentUser.id));
   const myTasks = currentMonthData.tasks.filter(t => currentUser.role === DefaultUserRole.CEO || t.assignedTo === 'ALL' || t.assignedTo === currentUser.id);
@@ -300,7 +314,7 @@ const App: React.FC = () => {
       case 'dashboard': return <Dashboard clients={myClients} tasks={myTasks} currentUser={currentUser} currentMonth={selectedMonth} months={MONTHS.map(m => `${m} ${currentYear}`)} onMonthChange={setSelectedMonth} />;
       case 'commercial': return <SalesView goal={currentMonthData.salesGoal} team={team} clients={currentMonthData.clients} currentUser={currentUser} onUpdateGoal={u => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, salesGoal: { ...currentMonthData.salesGoal, ...u } } }, notifications)} onRegisterSale={handleRegisterSale} onUpdateUserGoal={(id, pg, sg) => updateStateAndSync(team.map(u => u.id === id ? { ...u, personalGoal: pg, superGoal: sg } : u), db, notifications)} onUpdateClientNotes={(cid, n) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === cid ? { ...c, closingNotes: n } : c) } }, notifications)} />;
       case 'squads-mgmt': return <SquadsTabView squads={currentMonthData.squads || []} team={team} currentUser={currentUser} onUpdateSquads={s => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, squads: s } }, notifications)} onAddTask={t => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentMonthData.tasks] } }, notifications)} />;
-      case 'my-workspace': return <ManagerWorkspace managerId={currentUser.id} clients={myClients} tasks={myTasks} currentUser={currentUser} drive={currentMonthData.drive || []} onUpdateDrive={items => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, drive: items } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: currentMonthData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} onUpdateNotes={(id, n) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, notes: n } : c) } }, notifications)} onUpdateStatusFlag={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) } }, notifications)} onUpdateFolder={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) } }, notifications)} />;
+      case 'my-workspace': return <ManagerWorkspace managerId={currentUser.id} clients={myClients} tasks={myTasks} currentUser={currentUser} drive={currentMonthData.drive || []} onUpdateDrive={items => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, drive: items } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: currentMonthData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} onUpdateNotes={(id, n) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, notes: n } : c) } }, notifications)} onUpdateStatusFlag={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, statusFlag: f } : c) } }, notifications)} onUpdateFolder={(id, f) => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === id ? { ...c, folder: { ...c.folder, ...f } } : c) } }, notifications)} onUpdatePlan={handleUpdateClientPlan} />;
       case 'checklists': return <ChecklistView tasks={myTasks} currentUser={currentUser} team={team} onAddTask={t => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: [{ ...t, id: Date.now().toString() } as Task, ...currentMonthData.tasks] } }, notifications)} onRemoveTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: currentMonthData.tasks.filter(t => t.id !== id) } }, notifications)} onToggleTask={id => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, tasks: currentMonthData.tasks.map(t => t.id === id ? { ...t, status: t.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' } : t) } }, notifications)} />;
       case 'team': return <TeamView team={team} currentUser={currentUser} availableRoles={availableRoles} onUpdateRole={(id, r) => updateStateAndSync(team.map(u => u.id === id ? { ...u, role: r } : u), db, notifications)} onAddMember={(n, r) => updateStateAndSync([...team, { id: Math.random().toString(36).substr(2, 9), name: n, role: r, isActive: true, isApproved: true }], db, notifications)} onRemoveMember={id => updateStateAndSync(team.filter(u => u.id !== id), db, notifications)} onAddRole={r => setAvailableRoles([...availableRoles, r])} onToggleActive={id => updateStateAndSync(team.map(u => u.id === id ? { ...u, isActive: !u.isActive } : u), db, notifications)} />;
       case 'clients': return (
@@ -312,6 +326,7 @@ const App: React.FC = () => {
           onAddClient={c => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: [...(currentMonthData.clients || []), c] } }, notifications)}
           onRemoveClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.filter(c => c.id !== cid) } }, notifications)} 
           onTogglePauseClient={cid => updateStateAndSync(team, { ...db, [selectedMonth]: { ...currentMonthData, clients: currentMonthData.clients.map(c => c.id === cid ? { ...c, isPaused: !c.isPaused } : c) } }, notifications)} 
+          onUpdatePlan={handleUpdateClientPlan}
         />
       );
       case 'chat': return (
